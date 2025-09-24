@@ -1,0 +1,123 @@
+site_name: Blackstart
+site_url: https://pezops.github.io/blackstart
+site_description: Declarative and secure infrastructure bootstrapping.
+site_author: Mike
+
+repo_url: https://github.com/pezops/blackstart
+edit_uri: blob/master/docs/
+
+theme:
+  logo: images/power-outline.svg
+  name: material
+  features:
+    - navigation.indexes
+    - navigation.path
+    - navigation.top
+    - toc.follow
+
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/link
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/toggle-switch-off
+        name: Switch to system preference
+
+nav:
+  - Introduction: README.md
+  - Getting Started: getting-started.md
+  - User Guide:
+      - user-guide/README.md
+      - Deploy: user-guide/deploy.md
+      - Workflows: user-guide/workflows.md
+      - Eventual Consistency: user-guide/eventual-consistency.md
+      - Secure Practices: user-guide/secure-practices.md
+      - Modules: user-guide/modules/*
+  - Developer Guide:
+      - developer-guide/README.md
+      - Modules: developer-guide/modules.md
+      - Exported Types: developer-guide/types.md
+      - Building: developer-guide/building.md
+#  - About:
+#    - Release Notes: about/release-notes.md
+#    - Contributing: about/contributing.md
+#    - License: about/license.md
+
+extra_css:
+  - 'css/extra.css'
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      use_pygments: true
+  - pymdownx.snippets
+
+#markdown_extensions:
+#  - toc:
+#      permalink: 
+#  - attr_list
+#  - def_list
+#  - tables
+#  - pymdownx.highlight:
+#      use_pygments: false
+#  - pymdownx.snippets
+#  - pymdownx.superfences
+#  - callouts
+#  - mdx_gh_links:
+#      user: mkdocs
+#      repo: mkdocs
+#  - mkdocs-click
+
+#copyright: Copyright &copy; 2014 <a href="https://twitter.com/starletdreaming">Tom Christie</a>, Maintained by the <a href="/about/release-notes/#maintenance-team">MkDocs Team</a>.
+
+#hooks:
+#  - docs/hooks.py
+#
+#plugins:
+#  - search
+#  - redirects:
+#      redirect_maps:
+#        user-guide/plugins.md: dev-guide/plugins.md
+#        user-guide/custom-themes.md: dev-guide/themes.md
+#        user-guide/styling-your-docs.md: user-guide/choosing-your-theme.md
+#  - autorefs
+#  - literate-nav:
+#      nav_file: README.md
+#      implicit_index: true
+#  - mkdocstrings:
+#      handlers:
+#        python:
+#          options:
+#            docstring_section_style: list
+#            members_order: source
+#            show_root_heading: true
+#            show_source: false
+#            show_signature_annotations: true
+plugins:
+  - search
+  - literate-nav
+#  - literate-nav:
+#      implicit_index: true
+
+#watch:
+#  - mkdocs

@@ -1,0 +1,38 @@
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: blackstart
+build:
+  artifacts:
+    - image: blackstart
+      ko:
+        main: ./cmd/blackstart
+      hooks:
+        before:
+        - command: [ 'go', 'run', './internal/module_docs/module_docs.go' ]
+        - command: [ 'prettier', '--prose-wrap always', '--print-width', '100', '--write', 'docs' ]
+        - command: [ 'prettier', '--prose-wrap always', '--print-width', '100', '--write', './README.md' ]
+  local:
+    push: false
+manifests:
+  rawYaml:
+    - ./dev/kubernetes/dev-workflows.yaml
+  helm:
+    releases:
+      - name: blackstart
+        chartPath: ./charts/blackstart
+        namespace: blackstart
+        createNamespace: true
+        setValueTemplates:
+          cronJob.schedule: "* * * * *"
+          image.registry: ""
+          image.repository: "{{.IMAGE_REPO_blackstart}}"
+          image.tag: "{{.IMAGE_TAG_blackstart}}"
+deploy:
+  kubeContext: rancher-desktop
+  kubectl:
+    hooks:
+      before:
+      - host:
+          command: ['kubectl', 'apply', '-f', 'charts/blackstart/crds/*.yaml']
+  helm: {}

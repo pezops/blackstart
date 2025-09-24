@@ -1,0 +1,49 @@
+---
+apiVersion: blackstart.pezops.github.io/v1alpha1
+kind: Workflow
+metadata:
+  name: dev-workflow-pass
+  namespace: blackstart
+spec:
+  operations:
+    - name: mock_pass
+      id: mock_pass_0
+      module: "mock_module"
+    - name: mock_pass
+      id: mock_pass_1
+      module: "mock_module"
+      dependsOn:
+        - mock_pass_0
+    - name: mock_pass
+      id: mock_pass_2
+      module: "mock_module"
+      dependsOn:
+        - mock_pass_1
+    - name: mock_pass
+      id: mock_pass_3
+      module: "mock_module"
+      dependsOn:
+        - mock_pass_2
+---
+apiVersion: blackstart.pezops.github.io/v1alpha1
+kind: Workflow
+metadata:
+  name: dev-workflow-fail
+  namespace: blackstart
+spec:
+  operations:
+    - name: mock_pass
+      id: mock_pass_0
+      module: "mock_module"
+    - name: mock_pass
+      id: mock_pass_1
+      module: "mock_module"
+      dependsOn:
+        - mock_pass_0
+    - name: mock_pass
+      id: mock_pass_2
+      module: "mock_module"
+      inputs:
+        pass: false
+      dependsOn:
+        - mock_pass_1
