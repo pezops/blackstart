@@ -1,0 +1,36 @@
+apiVersion: blackstart.pezops.github.io/v1alpha1
+kind: Workflow
+metadata:
+  name: demo-workflow
+spec:
+  operations:
+    - name: add svc account
+      id: test_svc_account
+      module: "google_cloudsql_user"
+      inputs:
+        project: "demo-j78sj4"
+        instance: "instance-j38sl4"
+        user: "test-iam-svc-account-cloudsql"
+        user_type: CLOUD_IAM_SERVICE_ACCOUNT
+
+    - name: test instance
+      id: test_instance
+      module: "google_cloudsql_managed_instance"
+      inputs:
+        project: "demo-j78sj4"
+        region: "us-central1"
+        instance: "instance-j38sl4"
+
+    - name: grant cloudsql superuser to user
+      id: test_grant
+      module: "postgres_grant"
+      inputs:
+        connection:
+          from_dependency:
+            id: test_instance
+            output: connection
+        role:
+          from_dependency:
+            id: test_svc_account
+            output: user
+        permission: "pg_monitor"

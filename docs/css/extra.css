@@ -1,0 +1,4 @@
+/* This hides content when rendered in the MkDocs site. */
+.mkdocs-hidden {
+  display: none;
+}
