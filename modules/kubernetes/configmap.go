@@ -1,0 +1,258 @@
+package kubernetes
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	clientcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+
+	"github.com/pezops/blackstart"
+)
+
+func init() {
+	blackstart.RegisterModule("kubernetes_configmap", NewConfigMapModule)
+}
+
+var _ blackstart.Module = &configMapModule{}
+
+func NewConfigMapModule() blackstart.Module {
+	return &configMapModule{}
+}
+
+type configMap struct {
+	cmi clientcorev1.ConfigMapInterface
+	cm  *corev1.ConfigMap ``
+}
+
+func (c *configMap) Update(ctx blackstart.ModuleContext) error {
+	var err error
+	c.cm, err = c.cmi.Update(ctx, c.cm, metav1.UpdateOptions{})
+	return err
+}
+
+func (c *configMap) Delete(ctx blackstart.ModuleContext) error {
+	return c.cmi.Delete(ctx, c.cm.Name, metav1.DeleteOptions{})
+}
+
+type configMapModule struct{}
+
+func (c *configMapModule) Info() blackstart.ModuleInfo {
+	return blackstart.ModuleInfo{
+		Id:          "kubernetes_configmap",
+		Name:        "Kubernetes ConfigMap",
+		Description: "Manages a Kubernetes ConfigMap resource, but not content.",
+		Inputs: map[string]blackstart.InputValue{
+			inputName: {
+				Description: "Name of the ConfigMap",
+				Type:        reflect.TypeFor[string](),
+				Required:    true,
+			},
+			inputNamespace: {
+				Description: "Namespace where the ConfigMap exists",
+				Type:        reflect.TypeFor[string](),
+				Required:    false,
+				Default:     "default",
+			},
+			inputClient: {
+				Description: "Kubernetes client interface to use for API calls",
+				Type:        reflect.TypeFor[kubernetes.Interface](),
+				Required:    true,
+			},
+		},
+		Outputs: map[string]blackstart.OutputValue{
+			outputConfigMap: {
+				Description: "The ConfigMap resource",
+				Type:        reflect.TypeFor[*configMap](),
+			},
+		},
+		Examples: map[string]string{
+			"Set ConfigMap Value": `id: create-configmap
+module: kubernetes_configmap
+inputs:
+  client:
+    from_dependency:
+      id: k8s-client
+      output: client
+  name: my-config
+  namespace: default`,
+		},
+	}
+}
+
+func (c *configMapModule) Validate(op blackstart.Operation) error {
+	nameInput, ok := op.Inputs[inputName]
+	if !ok {
+		return fmt.Errorf("input '%s' must be provided", inputName)
+	}
+	name := nameInput.String()
+	if name == "" {
+		return fmt.Errorf("input '%s' must be non-empty", inputName)
+	}
+
+	// Client is required
+	_, ok = op.Inputs[inputClient]
+	if !ok {
+		return fmt.Errorf("input '%s' must be provided", inputClient)
+	}
+
+	return nil
+}
+
+func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
+	var cm *corev1.ConfigMap
+	if ctx.Tainted() {
+		return false, nil
+	}
+
+	clientInput, err := ctx.Input(inputClient)
+	if err != nil {
+		return false, fmt.Errorf("failed to get client input: %w", err)
+	}
+
+	cc, ok := clientInput.Any().(kubernetes.Interface)
+	if !ok {
+		return false, fmt.Errorf("client input is not a Kubernetes clientset")
+	}
+
+	nameInput, err := ctx.Input(inputName)
+	if err != nil {
+		return false, err
+	}
+	name := nameInput.String()
+
+	namespace := "default"
+	namespaceInput, err := ctx.Input(inputNamespace)
+	if err == nil {
+		namespace = namespaceInput.String()
+	}
+
+	cmi := cc.CoreV1().ConfigMaps(namespace)
+
+	//
+	//cm := &corev1.ConfigMap{
+	//	ObjectMeta: metav1.ObjectMeta{
+	//		Name:      name,
+	//		Namespace: namespace,
+	//	},
+	//}
+
+	cm, err = cmi.Get(ctx, name, metav1.GetOptions{})
+
+	// If DoesNotExist is true, success is either the ConfigMap or key does not exist
+	if ctx.DoesNotExist() {
+		if err != nil {
+			if errors.Is(err, &apierrors.StatusError{}) {
+				var e *apierrors.StatusError
+				errors.As(err, &e)
+				if e.ErrStatus.Code == 404 {
+					// ConfigMap doesn't exist
+					return true, nil
+				}
+			}
+		}
+		return false, err
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	// Get the ConfigMap
+	if cm != nil {
+		err = ctx.Output("configmap", cmi)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
+	clientInput, err := ctx.Input(inputClient)
+	if err != nil {
+		return fmt.Errorf("failed to get client input: %w", err)
+	}
+
+	client, ok := clientInput.Any().(kubernetes.Interface)
+	if !ok {
+		return fmt.Errorf("client input is not a Kubernetes clientset")
+	}
+
+	nameInput, err := ctx.Input(inputName)
+	if err != nil {
+		return err
+	}
+	name := nameInput.String()
+
+	namespace := "default"
+	namespaceInput, err := ctx.Input(inputNamespace)
+	if err == nil {
+		namespace = namespaceInput.String()
+	}
+
+	cmi := client.CoreV1().ConfigMaps(namespace)
+
+	// If DoesNotExist is true, ensure the key doesn't exist
+	if ctx.DoesNotExist() {
+		// Try to get the ConfigMap
+		var cm *corev1.ConfigMap
+		cm, err = cmi.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if errors.Is(err, &apierrors.StatusError{}) {
+				var e *apierrors.StatusError
+				errors.As(err, &e)
+				if e.ErrStatus.Code == 404 {
+					// ConfigMap doesn't exist
+					return nil
+				}
+			}
+			return err
+		}
+
+		if cm != nil {
+			// ConfigMap exists, delete it
+			err = cmi.Delete(ctx, name, metav1.DeleteOptions{})
+			return err
+		}
+		return fmt.Errorf("could not determine if ConfigMap '%s/%s' exists", namespace, name)
+	}
+
+	// Try to get the ConfigMap
+	cm, err := cmi.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if errors.Is(err, &apierrors.StatusError{}) {
+			var e *apierrors.StatusError
+			errors.As(err, &e)
+			if e.ErrStatus.Code == 404 {
+				// ConfigMap doesn't exist
+				newCm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+					Data: map[string]string{},
+				}
+				_, err = cmi.Create(ctx, newCm, metav1.CreateOptions{})
+				return err
+			}
+		}
+		return err
+	}
+
+	// ConfigMap should exist
+	if cm != nil {
+		err = ctx.Output("configmap", cmi)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	return fmt.Errorf("could not determine if ConfigMap '%s/%s' exists", namespace, name)
+}

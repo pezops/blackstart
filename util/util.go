@@ -2,10 +2,16 @@ package util
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"os"
 	"strings"
 	"testing"
+
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/pezops/blackstart"
 )
 
 func init() {
@@ -93,4 +99,30 @@ func CleanString(s string) string {
 	s = strings.TrimSuffix(s, "\n")
 	s = strings.ReplaceAll(s, "'''", "`")
 	return s
+}
+
+type ClusterConfigFunc func() (*rest.Config, error)
+
+// GetK8sClientConfig creates a Kubernetes client config using the default loading rules.
+func GetK8sClientConfig() (*rest.Config, error) {
+	return GetK8sClientConfigWithContext("")
+}
+
+// GetK8sClientConfigWithContext creates a Kubernetes client config using the specified context.
+func GetK8sClientConfigWithContext(kubeContext string) (*rest.Config, error) {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	var configOverrides *clientcmd.ConfigOverrides
+	if kubeContext != "" {
+		configOverrides = &clientcmd.ConfigOverrides{
+			CurrentContext: kubeContext,
+		}
+	}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+	config, configErr := kubeConfig.ClientConfig()
+	if configErr != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes client config: %w", configErr)
+	}
+
+	config = rest.AddUserAgent(config, blackstart.UserAgent)
+	return config, nil
 }

@@ -19,16 +19,13 @@ import (
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/api/v1alpha1"
 	_ "github.com/pezops/blackstart/internal/all_modules"
+	"github.com/pezops/blackstart/util"
 )
-
-type clusterConfigFunc func() (*rest.Config, error)
 
 func main() {
 	config, err := blackstart.ReadConfig()
@@ -70,7 +67,7 @@ func main() {
 	var kubeClient client.Client
 	if config.WorkflowFile == "" {
 		// Try to create a Kubernetes client to verify we can connect to the cluster
-		kubeClient, err = getK8sClient(ctx, rest.InClusterConfig)
+		kubeClient, err = workflowKubeClient(ctx)
 		if err != nil {
 			logger.Error("unable to create Kubernetes client", "error", err)
 			os.Exit(1)
@@ -341,36 +338,6 @@ func loadOperations(ops []v1alpha1.Operation) ([]blackstart.Operation, error) {
 
 }
 
-// getK8sClient creates a Kubernetes client using the provided cluster configuration function. If
-// the function fails, it falls back to using the KUBECONFIG environment variable or the default
-// kubeconfig file location.
-func getK8sClient(ctx context.Context, cf clusterConfigFunc) (client.Client, error) {
-	var err error
-	var c client.Client
-	var clientConfig *rest.Config
-	clientConfig, err = cf()
-	if err != nil {
-		// Fallback to kubeconfig file
-		kubeconfig := os.Getenv("KUBECONFIG")
-		if kubeconfig == "" {
-			kubeconfig = clientcmd.RecommendedHomeFile
-		}
-		clientConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			err = fmt.Errorf("error building kubeconfig: %w", err)
-			return nil, err
-		}
-	}
-
-	scheme := ctx.Value(blackstart.SchemeKey).(*runtime.Scheme)
-
-	c, err = client.New(clientConfig, client.Options{Scheme: scheme})
-	if err != nil {
-		return nil, fmt.Errorf("error creating Kubernetes client: %w", err)
-	}
-	return c, nil
-}
-
 // loadK8sApiSchemes initializes the Kubernetes API schemes and stores them in the context.
 func loadK8sApiSchemes(ctx context.Context, logger *slog.Logger) context.Context {
 	scheme := runtime.NewScheme()
@@ -380,4 +347,21 @@ func loadK8sApiSchemes(ctx context.Context, logger *slog.Logger) context.Context
 		os.Exit(1)
 	}
 	return context.WithValue(ctx, blackstart.SchemeKey, scheme)
+}
+
+func workflowKubeClient(ctx context.Context) (client.Client, error) {
+	var c client.Client
+
+	scheme := ctx.Value(blackstart.SchemeKey).(*runtime.Scheme)
+
+	clientConfig, err := util.GetK8sClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	c, err = client.New(clientConfig, client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, fmt.Errorf("error creating Kubernetes client: %w", err)
+	}
+	return c, nil
 }

@@ -13,6 +13,13 @@ var registeredPathNames = make(map[string]string)
 var ErrInputDoesNotExist = errors.New("input does not exist")
 var _ ModuleContext = &moduleContext{}
 
+type ModuleContextFlag int
+
+const (
+	TaintedFlag ModuleContextFlag = iota
+	DoesNotExistFlag
+)
+
 type inputType int
 
 // OutputValue is a structure that describes a value used in a module's outputs.
@@ -394,10 +401,9 @@ func NewModule(op *Operation) (Module, error) {
 	return nil, fmt.Errorf("unknown module: %s", op.Module)
 }
 
-// InputsToContext is a helper function that takes a map of inputs and returns a map of inputs that
-// are known at runtime, a list of inputs that are known at compile time, and a module context.
-// This is available as a helper for module testing.
-func InputsToContext(ctx context.Context, si map[string]Input) (
+// InputsToContext is a helper function that takes a map of inputs and returns module context with
+// the inputs set as if they were passed at runtime. This is available as a helper for module testing.
+func InputsToContext(ctx context.Context, si map[string]Input, flags ...ModuleContextFlag) (
 	mctx ModuleContext,
 ) {
 	inputs := make(map[string]Input)
@@ -411,6 +417,16 @@ func InputsToContext(ctx context.Context, si map[string]Input) (
 		inputValues:  inputs,
 		outputValues: make(map[string]interface{}),
 	}
+
+	for _, flag := range flags {
+		switch flag {
+		case TaintedFlag:
+			mctx.(*moduleContext).tainted = true
+		case DoesNotExistFlag:
+			mctx.(*moduleContext).dne = true
+		}
+	}
+
 	return
 }
 
