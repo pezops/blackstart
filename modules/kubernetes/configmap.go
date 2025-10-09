@@ -133,23 +133,13 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 
 	cmi := cc.CoreV1().ConfigMaps(namespace)
 
-	//
-	//cm := &corev1.ConfigMap{
-	//	ObjectMeta: metav1.ObjectMeta{
-	//		Name:      name,
-	//		Namespace: namespace,
-	//	},
-	//}
-
 	cm, err = cmi.Get(ctx, name, metav1.GetOptions{})
 
-	// If DoesNotExist is true, success is either the ConfigMap or key does not exist
 	if ctx.DoesNotExist() {
 		if err != nil {
-			if errors.Is(err, &apierrors.StatusError{}) {
-				var e *apierrors.StatusError
-				errors.As(err, &e)
-				if e.ErrStatus.Code == 404 {
+			var se *apierrors.StatusError
+			if errors.As(err, &se) {
+				if se.ErrStatus.Code == 404 {
 					// ConfigMap doesn't exist
 					return true, nil
 				}
@@ -164,7 +154,12 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 
 	// Get the ConfigMap
 	if cm != nil {
-		err = ctx.Output("configmap", cmi)
+		err = ctx.Output(
+			"configmap", &configMap{
+				cmi: cmi,
+				cm:  cm,
+			},
+		)
 		if err != nil {
 			return false, err
 		}
@@ -190,24 +185,23 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 	}
 	name := nameInput.String()
 
-	namespace := "default"
 	namespaceInput, err := ctx.Input(inputNamespace)
-	if err == nil {
-		namespace = namespaceInput.String()
+	if err != nil {
+		return err
 	}
+	namespace := namespaceInput.String()
 
 	cmi := client.CoreV1().ConfigMaps(namespace)
 
-	// If DoesNotExist is true, ensure the key doesn't exist
+	// If DoesNotExist is true, ensure the entire ConfigMap doesn't exist
 	if ctx.DoesNotExist() {
 		// Try to get the ConfigMap
 		var cm *corev1.ConfigMap
 		cm, err = cmi.Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			if errors.Is(err, &apierrors.StatusError{}) {
-				var e *apierrors.StatusError
-				errors.As(err, &e)
-				if e.ErrStatus.Code == 404 {
+			var se *apierrors.StatusError
+			if errors.As(err, &se) {
+				if se.ErrStatus.Code == 404 {
 					// ConfigMap doesn't exist
 					return nil
 				}
@@ -226,10 +220,9 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 	// Try to get the ConfigMap
 	cm, err := cmi.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		if errors.Is(err, &apierrors.StatusError{}) {
-			var e *apierrors.StatusError
-			errors.As(err, &e)
-			if e.ErrStatus.Code == 404 {
+		var se *apierrors.StatusError
+		if errors.As(err, &se) {
+			if se.ErrStatus.Code == 404 {
 				// ConfigMap doesn't exist
 				newCm := &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
@@ -247,7 +240,12 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 
 	// ConfigMap should exist
 	if cm != nil {
-		err = ctx.Output("configmap", cmi)
+		err = ctx.Output(
+			"configmap", &configMap{
+				cmi: cmi,
+				cm:  cm,
+			},
+		)
 		if err != nil {
 			return err
 		}
