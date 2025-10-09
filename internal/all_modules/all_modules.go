@@ -4,6 +4,7 @@ package all_modules
 import (
 	_ "github.com/pezops/blackstart/modules/google/cloud"
 	_ "github.com/pezops/blackstart/modules/google/cloudsql"
+	_ "github.com/pezops/blackstart/modules/kubernetes"
 	_ "github.com/pezops/blackstart/modules/mock"
 	_ "github.com/pezops/blackstart/modules/postgres"
 )
