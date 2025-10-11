@@ -85,12 +85,12 @@ type Operation struct {
 
 	// DependsOn is a list of operation IDs that this operation depends on and must be completed
 	// before this operation is run.
-	DependsOn []string `yaml:"depends_on,omitempty" json:"dependsOn,omitempty"`
+	DependsOn []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
 
 	// DoesNotExist is a special parameter that can be used to indicate that the resource should
 	// not exist. This is useful for resources that are changed from a previous state and now
 	// should be deleted if they still exist.
-	DoesNotExist bool `yaml:"does_not_exist,omitempty" json:"doesNotExist,omitempty"`
+	DoesNotExist bool `yaml:"doesNotExist,omitempty" json:"doesNotExist,omitempty"`
 
 	// Tainted is a special parameter that can be used to indicate that the resource is tainted and
 	// should be replaced. This is useful for resources that always must be updated so that
@@ -105,7 +105,7 @@ type Operation struct {
 type OperationInput struct {
 	// FromDependency indicates that the input value should be taken from the output of a different
 	// operation.
-	FromDependency *FromDependency `yaml:"from_dependency,omitempty" json:"fromDependency,omitempty"`
+	FromDependency *FromDependency `yaml:"fromDependency,omitempty" json:"fromDependency,omitempty"`
 
 	// Extra holds any additional fields not explicitly modeled in the struct. This should be a
 	// map of scalar values.
@@ -117,7 +117,7 @@ func (oi *OperationInput) UnmarshalYAML(value *yaml.Node) error {
 	var err error
 	var raw map[string]interface{}
 	if err = value.Decode(&raw); err == nil {
-		if fd, ok := raw["from_dependency"]; ok {
+		if fd, ok := raw["fromDependency"]; ok {
 			var buf []byte
 			buf, err = yaml.Marshal(fd)
 			if err != nil {
@@ -128,7 +128,7 @@ func (oi *OperationInput) UnmarshalYAML(value *yaml.Node) error {
 				return err
 			}
 			oi.FromDependency = &dep
-			delete(raw, "from_dependency")
+			delete(raw, "fromDependency")
 		}
 	}
 

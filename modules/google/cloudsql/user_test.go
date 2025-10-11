@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/util"
-
-	"github.com/stretchr/testify/require"
 )
 
 // TestUserBuiltin tests the cloudsqlv1 user module with a built-in users. The use of built-in users

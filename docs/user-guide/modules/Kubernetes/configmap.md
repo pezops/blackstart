@@ -29,7 +29,7 @@ id: create-configmap
 module: kubernetes_configmap
 inputs:
   client:
-    from_dependency:
+    fromDependency:
       id: k8s-client
       output: client
   name: my-config

@@ -9,13 +9,13 @@ import (
 
 	"cloud.google.com/go/cloudsqlconn"
 	"cloud.google.com/go/cloudsqlconn/postgres/pgxv5"
-	"github.com/pezops/blackstart/modules/google/cloud"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
 	cloudsqlv1 "google.golang.org/genproto/googleapis/cloud/sql/v1"
 
 	"github.com/pezops/blackstart"
+	"github.com/pezops/blackstart/modules/google/cloud"
 )
 
 const (

@@ -27,7 +27,7 @@ id: set-configmap-example
 module: kubernetes_configmap_value
 inputs:
   configmap:
-    from_dependency:
+    fromDependency:
       id: app-configmap
       output: configmap
   key: DATABASE_URL
