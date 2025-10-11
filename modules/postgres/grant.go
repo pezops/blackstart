@@ -179,7 +179,7 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 module: postgres_grant
 inputs:
   connection:
-    from_dependency:
+    fromDependency:
       id: manage-instance
       output: connection
   Role: my-user
@@ -188,7 +188,7 @@ inputs:
 module: postgres_grant
 inputs:
   connection:
-    from_dependency:
+    fromDependency:
       id: manage-instance
       output: connection
   Role: my-user

@@ -41,7 +41,7 @@ description: test operation
 module: "test_module"
 id: test0
 name: test0
-does_not_exist: true
+doesNotExist: true
 description: test operation
 `,
 			out: Operation{
@@ -87,7 +87,7 @@ name: test0
 description: test operation
 inputs:
   foo: 
-    from_dependency:
+    fromDependency:
       id: asdf
       output: some_key
       
@@ -200,14 +200,14 @@ operations:
    description: test Operation
    inputs:
      foo:
-       from_dependency:
+       fromDependency:
          id: asdf
          output: some_key
  - module: "test_module"
    id: test1
    name: test1
    description: test Operation 1
-   does_not_exist: true
+   doesNotExist: true
    inputs:
      foo: bar
 `,
@@ -316,7 +316,7 @@ mapInput:
 		{
 			name: "from_dependency_input",
 			in: `
-from_dependency:
+fromDependency:
   id: foo
   output: bar
 `,

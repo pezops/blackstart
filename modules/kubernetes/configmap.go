@@ -75,7 +75,7 @@ func (c *configMapModule) Info() blackstart.ModuleInfo {
 module: kubernetes_configmap
 inputs:
   client:
-    from_dependency:
+    fromDependency:
       id: k8s-client
       output: client
   name: my-config

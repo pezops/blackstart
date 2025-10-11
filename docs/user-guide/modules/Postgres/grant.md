@@ -30,7 +30,7 @@ id: grant-Role-membership
 module: postgres_grant
 inputs:
   connection:
-    from_dependency:
+    fromDependency:
       id: manage-instance
       output: connection
   Role: my-user
@@ -44,7 +44,7 @@ id: grant-Schema-usage
 module: postgres_grant
 inputs:
   connection:
-    from_dependency:
+    fromDependency:
       id: manage-instance
       output: connection
   Role: my-user

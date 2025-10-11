@@ -43,11 +43,11 @@ spec:
       module: "postgres_grant"
       inputs:
         connection:
-          from_dependency:
+          fromDependency:
             id: test_instance
             output: connection
         role:
-          from_dependency:
+          fromDependency:
             id: test_svc_account
             output: user
         permission: "pg_monitor"
@@ -62,7 +62,7 @@ correct order.
 
 An operation can depend on another in two ways:
 
-1. **Explicitly**: Using the `depends_on` field.
+1. **Explicitly**: Using the `dependsOn` field.
 2. **Implicitly**: When an operation's `input` comes from another operation's `output`.
 
 Blackstart analyzes these dependencies to build the execution graph. In the example above, the
@@ -122,13 +122,13 @@ inputs:
 #### Dynamic Inputs
 
 An input to a module may be sourced from the output of another operation that has already run. This
-is the primary way to chain operations together in a workflow. Use the `from_dependency` structure
-to define this relationship.
+is the primary way to chain operations together in a workflow. Use the `fromDependency` structure to
+define this relationship.
 
 ```yaml
 inputs:
   connection:
-    from_dependency:
+    fromDependency:
       id: test_instance # The ID of the dependency operation
       output: connection # The name of the output from that operation
 ```

@@ -319,7 +319,7 @@ func loadOperations(ops []v1alpha1.Operation) ([]blackstart.Operation, error) {
 		coreOp.Tainted = op.Tainted
 		coreOp.Inputs = make(map[string]blackstart.Input)
 		for k, v := range op.Inputs {
-			if v.Extra != nil {
+			if v.Extra != nil && v.FromDependency == nil {
 				var val any
 				err = json.Unmarshal(v.Extra.Raw, &val)
 				if err != nil {

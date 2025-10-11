@@ -92,7 +92,7 @@ func (r roleModule) Info() blackstart.ModuleInfo {
 module: postgres_role
 inputs:
   connection:
-    from_dependency:
+    fromDependency:
       id: manage-instance
       output: connection
   Name: my-new-Role

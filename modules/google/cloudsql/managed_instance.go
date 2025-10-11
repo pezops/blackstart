@@ -9,12 +9,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pezops/blackstart"
-	"github.com/pezops/blackstart/modules/google/cloud"
-	"github.com/pezops/blackstart/util"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
+
+	"github.com/pezops/blackstart"
+	"github.com/pezops/blackstart/modules/google/cloud"
+	"github.com/pezops/blackstart/util"
 )
 
 func init() {
@@ -225,7 +226,7 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	mgmtUserMctx := blackstart.OpContext(ctx, &mgmtUserOp)
 	mgmtUserExists, _ := mgmtUserModule.Check(ctx)
 
-	// Leave the IAM user in place when disabling management using the `does_not_exist` flag, just
+	// Leave the IAM user in place when disabling management using the `doesNotExist` flag, just
 	// revoke the role. The management user being removed is a very special case. It seems
 	// reasonable that any new management user would delete the old user, if needed.
 	if !mgmtUserExists && !ctx.DoesNotExist() {

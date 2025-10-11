@@ -7,12 +7,12 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
+	"google.golang.org/api/sqladmin/v1"
+
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/modules/google/cloud"
-	"google.golang.org/api/option"
-
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/sqladmin/v1"
 )
 
 func init() {

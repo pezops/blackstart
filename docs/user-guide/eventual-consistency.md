@@ -51,7 +51,7 @@ spec:
       inputs:
         # ... other inputs ...
         role:
-          from_dependency:
+          fromDependency:
             id: my_app_user
             output: user
         table: "my_table"

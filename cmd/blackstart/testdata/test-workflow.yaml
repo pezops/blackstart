@@ -30,11 +30,11 @@ spec:
       module: "postgres_grant"
       inputs:
         connection:
-          from_dependency:
+          fromDependency:
             id: test_instance
             output: connection
         role:
-          from_dependency:
+          fromDependency:
             id: test_svc_account
             output: user
         permission: "pg_monitor"
