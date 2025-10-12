@@ -125,11 +125,11 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	}
 	name := nameInput.String()
 
-	namespace := "default"
 	namespaceInput, err := ctx.Input(inputNamespace)
-	if err == nil {
-		namespace = namespaceInput.String()
+	if err != nil {
+		return false, err
 	}
+	namespace := namespaceInput.String()
 
 	cmi := cc.CoreV1().ConfigMaps(namespace)
 
