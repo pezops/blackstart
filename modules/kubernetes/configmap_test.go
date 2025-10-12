@@ -9,7 +9,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/pezops/blackstart"
 )
@@ -26,6 +29,8 @@ func TestConfigMapModule_Info(t *testing.T) {
 	_, exists = info.Inputs[inputNamespace]
 	assert.True(t, exists)
 	_, exists = info.Inputs[inputClient]
+	assert.True(t, exists)
+	_, exists = info.Inputs[inputImmutable]
 	assert.True(t, exists)
 
 	// Check outputs
@@ -182,6 +187,7 @@ func TestConfigMapModule_Check(t *testing.T) {
 					inputClient:    blackstart.NewInputFromValue(clientset),
 					inputName:      blackstart.NewInputFromValue(test.configMapName),
 					inputNamespace: blackstart.NewInputFromValue(test.namespace),
+					inputImmutable: blackstart.NewInputFromValue((*bool)(nil)),
 				}
 
 				// Create context using blackstart.InputsToContext
@@ -310,6 +316,7 @@ func TestConfigMapModule_Set(t *testing.T) {
 					inputClient:    blackstart.NewInputFromValue(clientset),
 					inputName:      blackstart.NewInputFromValue(test.configMapName),
 					inputNamespace: blackstart.NewInputFromValue(test.namespace),
+					inputImmutable: blackstart.NewInputFromValue((*bool)(nil)),
 				}
 
 				// Create module context using blackstart.InputsToContext
@@ -329,4 +336,163 @@ func TestConfigMapModule_Set(t *testing.T) {
 			},
 		)
 	}
+}
+
+// TestConfigMapModule_Immutable tests the ConfigMap module's handling of the immutable field. This
+// is a comprehensive integration test that verifies the module correctly manages the immutable field,
+// including checking and setting the field, and respecting the immutability enforcement.
+func TestConfigMapModule_Immutable(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := setupEnvtest(t)
+
+	// Create a real Kubernetes clientset for our modules
+	clientset, err := kubernetes.NewForConfig(cfg)
+	require.NoError(t, err)
+
+	// Create a controller-runtime client for direct verification
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	k8sClient, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: scheme})
+	require.NoError(t, err)
+
+	// Create test namespace
+	testNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-namespace",
+		},
+	}
+	err = k8sClient.Create(ctx, testNamespace)
+	require.NoError(t, err)
+
+	cm := NewConfigMapModule()
+
+	testConfigMapName := "test-immutable-configmap"
+	namespace := "test-namespace"
+
+	t.Run(
+		"immutable_lifecycle", func(t *testing.T) {
+			// Create a configmap without specifying immutable (nil/default)
+			inputs := map[string]blackstart.Input{
+				inputClient:    blackstart.NewInputFromValue(clientset),
+				inputName:      blackstart.NewInputFromValue(testConfigMapName),
+				inputNamespace: blackstart.NewInputFromValue(namespace),
+				inputImmutable: blackstart.NewInputFromValue((*bool)(nil)),
+			}
+
+			moduleCtx := blackstart.InputsToContext(ctx, inputs)
+			err = cm.Set(moduleCtx)
+			require.NoError(t, err)
+
+			// Verify the configmap was created
+			var cmResource corev1.ConfigMap
+			err = k8sClient.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: testConfigMapName}, &cmResource)
+			require.NoError(t, err)
+
+			// Add test values to the configmap using direct Kubernetes client
+			// Get the current configmap
+			var testConfigMap *corev1.ConfigMap
+			testConfigMap, err = clientset.CoreV1().ConfigMaps(namespace).Get(
+				ctx,
+				testConfigMapName,
+				metav1.GetOptions{},
+			)
+			require.NoError(t, err)
+
+			// Add some data
+			if testConfigMap.Data == nil {
+				testConfigMap.Data = make(map[string]string)
+			}
+			testConfigMap.Data["key1"] = "value1"
+			testConfigMap.Data["key2"] = "value2"
+
+			// Update the configmap
+			_, err = clientset.CoreV1().ConfigMaps(namespace).Update(
+				ctx,
+				testConfigMap,
+				metav1.UpdateOptions{},
+			)
+			require.NoError(t, err)
+
+			// Verify both values were added
+			err = k8sClient.Get(
+				ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: testConfigMapName}, &cmResource,
+			)
+			require.NoError(t, err)
+
+			assert.Equal(t, "value1", testConfigMap.Data["key1"])
+			assert.Equal(t, "value2", testConfigMap.Data["key2"])
+
+			// Use kubernetes_configmap module to make it immutable
+			trueVal := true
+			inputs[inputImmutable] = blackstart.NewInputFromValue(&trueVal)
+			moduleCtx = blackstart.InputsToContext(ctx, inputs)
+			err = cm.Set(moduleCtx)
+			require.NoError(t, err)
+
+			// Verify the configmap is now immutable
+			err = k8sClient.Get(
+				ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: testConfigMapName}, &cmResource,
+			)
+			require.NoError(t, err)
+			// Immutable field should be *true
+			assert.Equal(t, &trueVal, cmResource.Immutable)
+
+			// Verify Check returns false when immutable field doesn't match
+			// Check when using immutable: false, should return false
+			falseVal := false
+			checkInputs := map[string]blackstart.Input{
+				inputClient:    blackstart.NewInputFromValue(clientset),
+				inputName:      blackstart.NewInputFromValue(testConfigMapName),
+				inputNamespace: blackstart.NewInputFromValue(namespace),
+				inputImmutable: blackstart.NewInputFromValue(&falseVal),
+			}
+			checkCtx := blackstart.InputsToContext(ctx, checkInputs)
+
+			var result bool
+			result, err = cm.Check(checkCtx)
+			require.NoError(t, err)
+			assert.False(t, result)
+
+			// Check with immutable: true, should return true
+			checkInputs[inputImmutable] = blackstart.NewInputFromValue(&trueVal)
+			checkCtx = blackstart.InputsToContext(ctx, checkInputs)
+			result, err = cm.Check(checkCtx)
+			require.NoError(t, err)
+			assert.True(t, result)
+
+			// Check with immutable: nil should return true (immutable field is ignored)
+			checkInputsNil := map[string]blackstart.Input{
+				inputClient:    blackstart.NewInputFromValue(clientset),
+				inputName:      blackstart.NewInputFromValue(testConfigMapName),
+				inputNamespace: blackstart.NewInputFromValue(namespace),
+				inputImmutable: blackstart.NewInputFromValue(nil),
+			}
+			checkCtx = blackstart.InputsToContext(ctx, checkInputsNil)
+			result, err = cm.Check(checkCtx)
+			require.NoError(t, err)
+			assert.True(t, result)
+
+			// Attempt to modify the configmap - this should fail due to immutability
+			// Get the current configmap
+			testConfigMap, err = clientset.CoreV1().ConfigMaps(namespace).Get(
+				ctx,
+				testConfigMapName,
+				metav1.GetOptions{},
+			)
+			require.NoError(t, err)
+
+			// Try to modify an existing value
+			testConfigMap.Data["key1"] = "modified-value"
+
+			// This update should fail because the configmap is immutable
+			_, err = clientset.CoreV1().ConfigMaps(namespace).Update(
+				ctx,
+				testConfigMap,
+				metav1.UpdateOptions{},
+			)
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err))
+		},
+	)
 }
