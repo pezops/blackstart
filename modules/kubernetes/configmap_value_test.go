@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -15,20 +17,15 @@ func TestConfigMapValueModule_Info(t *testing.T) {
 	module := NewConfigMapValueModule()
 	info := module.Info()
 
-	if info.Id != "kubernetes_configmap_value" {
-		t.Errorf("Expected ID to be 'kubernetes_configmap_value', got '%s'", info.Id)
-	}
+	assert.Equal(t, "kubernetes_configmap_value", info.Id)
 
 	// Check required inputs
-	if _, exists := info.Inputs[inputKey]; !exists {
-		t.Errorf("Expected input '%s' to exist", inputKey)
-	}
-	if _, exists := info.Inputs[inputValue]; !exists {
-		t.Errorf("Expected input '%s' to exist", inputValue)
-	}
-	if _, exists := info.Inputs[inputConfigMap]; !exists {
-		t.Errorf("Expected input '%s' to exist", inputConfigMap)
-	}
+	_, exists := info.Inputs[inputKey]
+	assert.True(t, exists)
+	_, exists = info.Inputs[inputValue]
+	assert.True(t, exists)
+	_, exists = info.Inputs[inputConfigMap]
+	assert.True(t, exists)
 }
 
 func TestConfigMapValueModule_Validate(t *testing.T) {
@@ -114,11 +111,10 @@ func TestConfigMapValueModule_Validate(t *testing.T) {
 				}
 
 				err := module.Validate(operation)
-				if test.expectError && err == nil {
-					t.Error("Expected error but got none")
-				}
-				if !test.expectError && err != nil {
-					t.Errorf("Expected no error but got: %v", err)
+				if test.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
 				}
 			},
 		)
@@ -144,9 +140,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 		initialConfigMap,
 		metav1.CreateOptions{},
 	)
-	if err != nil {
-		t.Fatalf("Failed to create test ConfigMap: %v", err)
-	}
+	require.NoError(t, err)
 
 	module := NewConfigMapValueModule()
 
@@ -161,7 +155,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 		expectedResult bool
 	}{
 		{
-			name:           "existing ConfigMap, non-existing key",
+			name:           "existing configmap missing key",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
 			key:            "new-key",
@@ -169,7 +163,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			expectedResult: false,
 		},
 		{
-			name:           "existing ConfigMap, existing key, wrong value",
+			name:           "existing configmap existing key incorrect value",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
 			key:            "existing-key",
@@ -177,7 +171,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			expectedResult: false,
 		},
 		{
-			name:           "existing ConfigMap, existing key, correct value",
+			name:           "existing configmap existing key correct value",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
 			key:            "existing-key",
@@ -185,24 +179,24 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			expectedResult: true,
 		},
 		{
-			name:           "non-existing ConfigMap",
-			configMapName:  "non-existing",
+			name:           "missing configmap",
+			configMapName:  "missing",
 			namespace:      "test-namespace",
 			key:            "some-key",
 			value:          "some-value",
 			expectedResult: false,
 		},
 		{
-			name:           "does not exist mode, non-existing key",
+			name:           "does not exist missing key",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
-			key:            "non-existing-key",
+			key:            "missing-key",
 			value:          "any-value",
 			doesNotExist:   true,
 			expectedResult: true,
 		},
 		{
-			name:           "does not exist mode, existing key",
+			name:           "does not exist existing key",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
 			key:            "existing-key",
@@ -211,7 +205,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			expectedResult: false,
 		},
 		{
-			name:           "tainted mode, existing ConfigMap and correct value",
+			name:           "tainted existing configmap correct value",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
 			key:            "existing-key",
@@ -226,16 +220,14 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			test.name, func(t *testing.T) {
 				// Get the ConfigMap and create a configMap object
 				var cm *corev1.ConfigMap
+				var tErr error
 				if test.configMapName == "test-configmap" {
-					var err error
-					cm, err = clientset.CoreV1().ConfigMaps(test.namespace).Get(
+					cm, tErr = clientset.CoreV1().ConfigMaps(test.namespace).Get(
 						context.Background(),
 						test.configMapName,
 						metav1.GetOptions{},
 					)
-					if err != nil {
-						t.Fatalf("Failed to get ConfigMap: %v", err)
-					}
+					require.NoError(t, tErr)
 				} else {
 					cm = &corev1.ConfigMap{
 						ObjectMeta: metav1.ObjectMeta{
@@ -250,7 +242,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 					cmi: clientset.CoreV1().ConfigMaps(test.namespace),
 				}
 
-				// Create inputs (removed inputClient since it's embedded in configMap now)
+				// Create inputs
 				inputs := map[string]blackstart.Input{
 					inputConfigMap: blackstart.NewInputFromValue(configMapObj),
 					inputKey:       blackstart.NewInputFromValue(test.key),
@@ -269,15 +261,11 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 				moduleContext := blackstart.InputsToContext(ctx, inputs, flags...)
 
 				// Call Check method
-				result, err := module.Check(moduleContext)
-				if err != nil {
-					t.Fatalf("Check failed with error: %v", err)
-				}
+				result, tErr := module.Check(moduleContext)
+				require.NoError(t, tErr)
 
 				// Verify result
-				if result != test.expectedResult {
-					t.Errorf("Expected result to be %v, got %v", test.expectedResult, result)
-				}
+				assert.Equal(t, test.expectedResult, result)
 			},
 		)
 	}
@@ -302,9 +290,7 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 		initialConfigMap,
 		metav1.CreateOptions{},
 	)
-	if err != nil {
-		t.Fatalf("Failed to create test ConfigMap: %v", err)
-	}
+	require.NoError(t, err)
 
 	module := NewConfigMapValueModule()
 
@@ -324,20 +310,14 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 			key:           "new-key",
 			value:         "new-value",
 			checkAfter: func(t *testing.T, clientset *fake.Clientset) {
-				cm, err := clientset.CoreV1().ConfigMaps("test-namespace").Get(
+				cm, tErr := clientset.CoreV1().ConfigMaps("test-namespace").Get(
 					context.Background(),
 					"test-configmap",
 					metav1.GetOptions{},
 				)
-				if err != nil {
-					t.Fatalf("Failed to get ConfigMap: %v", err)
-				}
-				if cm.Data["new-key"] != "new-value" {
-					t.Errorf("Expected value to be 'new-value', got '%s'", cm.Data["new-key"])
-				}
-				if cm.Data["existing-key"] != "existing-value" {
-					t.Errorf("Expected existing key to be unchanged")
-				}
+				require.NoError(t, tErr)
+				assert.Equal(t, "new-value", cm.Data["new-key"])
+				assert.Equal(t, "existing-value", cm.Data["existing-key"])
 			},
 		},
 		{
@@ -347,38 +327,31 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 			key:           "existing-key",
 			value:         "updated-value",
 			checkAfter: func(t *testing.T, clientset *fake.Clientset) {
-				cm, err := clientset.CoreV1().ConfigMaps("test-namespace").Get(
+				cm, tErr := clientset.CoreV1().ConfigMaps("test-namespace").Get(
 					context.Background(),
 					"test-configmap",
 					metav1.GetOptions{},
 				)
-				if err != nil {
-					t.Fatalf("Failed to get ConfigMap: %v", err)
-				}
-				if cm.Data["existing-key"] != "updated-value" {
-					t.Errorf("Expected value to be 'updated-value', got '%s'", cm.Data["existing-key"])
-				}
+				require.NoError(t, tErr)
+				assert.Equal(t, "updated-value", cm.Data["existing-key"])
 			},
 		},
 		{
-			name:          "delete key in does not exist mode",
+			name:          "does not exist existing key",
 			configMapName: "test-configmap",
 			namespace:     "test-namespace",
 			key:           "existing-key",
 			value:         "any-value",
 			doesNotExist:  true,
 			checkAfter: func(t *testing.T, clientset *fake.Clientset) {
-				cm, err := clientset.CoreV1().ConfigMaps("test-namespace").Get(
+				cm, tErr := clientset.CoreV1().ConfigMaps("test-namespace").Get(
 					context.Background(),
 					"test-configmap",
 					metav1.GetOptions{},
 				)
-				if err != nil {
-					t.Fatalf("Failed to get ConfigMap: %v", err)
-				}
-				if _, exists := cm.Data["existing-key"]; exists {
-					t.Errorf("Expected key to be deleted, but it still exists")
-				}
+				require.NoError(t, tErr)
+				_, exists := cm.Data["existing-key"]
+				assert.False(t, exists)
 			},
 		},
 	}
@@ -388,17 +361,15 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 			test.name, func(t *testing.T) {
 				// Get the ConfigMap if it already exists, or create a new one
 				var cm *corev1.ConfigMap
-				var err error
+				var tEerr error
 
 				if test.configMapName == "test-configmap" {
-					cm, err = clientset.CoreV1().ConfigMaps(test.namespace).Get(
+					cm, tEerr = clientset.CoreV1().ConfigMaps(test.namespace).Get(
 						context.Background(),
 						test.configMapName,
 						metav1.GetOptions{},
 					)
-					if err != nil {
-						t.Fatalf("Failed to get ConfigMap: %v", err)
-					}
+					require.NoError(t, tEerr)
 				} else {
 					// For new ConfigMap, create a new object (but don't add to clientset yet)
 					cm = &corev1.ConfigMap{
@@ -414,7 +385,7 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 					cmi: clientset.CoreV1().ConfigMaps(test.namespace),
 				}
 
-				// Create inputs (removed inputClient since it's embedded in configMap now)
+				// Create inputs
 				inputs := map[string]blackstart.Input{
 					inputConfigMap: blackstart.NewInputFromValue(configMapObj),
 					inputKey:       blackstart.NewInputFromValue(test.key),
@@ -430,10 +401,8 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 				moduleContext := blackstart.InputsToContext(ctx, inputs, flags...)
 
 				// Call Set method
-				err = module.Set(moduleContext)
-				if err != nil {
-					t.Fatalf("Set failed with error: %v", err)
-				}
+				tEerr = module.Set(moduleContext)
+				require.NoError(t, tEerr)
 
 				// Run verification
 				if test.checkAfter != nil {
@@ -445,24 +414,20 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 }
 
 func TestConfigMapValueModule(t *testing.T) {
-	// 1. Set up a fake k8s client
 	clientset := fake.NewClientset()
 
-	// 2. Create the configmap_value module
 	module := NewConfigMapValueModule()
 
-	// Define test parameters
 	testNamespace := "test-namespace"
 	testConfigMapName := "test-configmap"
 	testKey := "test-key"
 	testValue := "test-value"
 
 	t.Run(
-		"ConfigMap lifecycle", func(t *testing.T) {
-			// 3. Check for positive and negative does not exist variations of a missing configmap
-			// First, test with a non-existent ConfigMap
-			// Create a ConfigMap object for a non-existent ConfigMap
-			nonExistentCM := &corev1.ConfigMap{
+		"configmap lifecycle", func(t *testing.T) {
+			// Check for positive and negative does not exist variations of a missing configmap
+
+			nonExistentK8sConfigMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testConfigMapName,
 					Namespace: testNamespace,
@@ -470,38 +435,30 @@ func TestConfigMapValueModule(t *testing.T) {
 			}
 
 			nonExistentConfigMap := &configMap{
-				cm:  nonExistentCM,
+				cm:  nonExistentK8sConfigMap,
 				cmi: clientset.CoreV1().ConfigMaps(testNamespace),
 			}
 
-			// Create inputs for testing non-existent ConfigMap (removed inputClient)
+			// Create inputs for testing missing ConfigMap
 			inputs := map[string]blackstart.Input{
 				inputConfigMap: blackstart.NewInputFromValue(nonExistentConfigMap),
 				inputKey:       blackstart.NewInputFromValue(testKey),
 				inputValue:     blackstart.NewInputFromValue(testValue),
 			}
 
-			// Check for a non-existent ConfigMap (regular mode)
+			// Check for a missing ConfigMap
 			ctx := blackstart.InputsToContext(context.Background(), inputs)
 			result, err := module.Check(ctx)
-			if err != nil {
-				t.Fatalf("Check failed with error: %v", err)
-			}
-			if result {
-				t.Errorf("Expected Check to return false for non-existent ConfigMap, got true")
-			}
+			require.NoError(t, err)
+			assert.False(t, result)
 
-			// Check for a non-existent ConfigMap in "does not exist" mode
+			// Check for a missing ConfigMap with "does not exist" set
 			ctx = blackstart.InputsToContext(context.Background(), inputs, blackstart.DoesNotExistFlag)
 			result, err = module.Check(ctx)
-			if err != nil {
-				t.Fatalf("Check failed with error: %v", err)
-			}
-			if !result {
-				t.Errorf("Expected Check to return true for non-existent ConfigMap in DoesNotExist mode, got false")
-			}
+			require.NoError(t, err)
+			assert.True(t, result)
 
-			// 4. Use the fake client to create a new test-configmap
+			// Create a new test ConfigMap
 			_, err = clientset.CoreV1().ConfigMaps(testNamespace).Create(
 				context.Background(),
 				&corev1.ConfigMap{
@@ -513,19 +470,15 @@ func TestConfigMapValueModule(t *testing.T) {
 				},
 				metav1.CreateOptions{},
 			)
-			if err != nil {
-				t.Fatalf("Failed to create test ConfigMap: %v", err)
-			}
+			require.NoError(t, err)
 
-			// Verify the ConfigMap was created
+			// Get the ConfigMap
 			cm, err := clientset.CoreV1().ConfigMaps(testNamespace).Get(
 				context.Background(),
 				testConfigMapName,
 				metav1.GetOptions{},
 			)
-			if err != nil {
-				t.Fatalf("Failed to get ConfigMap: %v", err)
-			}
+			require.NoError(t, err)
 
 			// Create a configMap object with the real ConfigMap
 			configMapObj := &configMap{
@@ -536,39 +489,24 @@ func TestConfigMapValueModule(t *testing.T) {
 			// Update inputs with the real ConfigMap
 			inputs[inputConfigMap] = blackstart.NewInputFromValue(configMapObj)
 
-			// 5. Use the module to set a value in the configmap, verify it's set
-			// First check that the key doesn't exist
+			// Check that the key doesn't exist
 			ctx = blackstart.InputsToContext(context.Background(), inputs)
 			result, err = module.Check(ctx)
-			if err != nil {
-				t.Fatalf("Check failed with error: %v", err)
-			}
-			if result {
-				t.Errorf("Expected Check to return false for key that doesn't exist yet, got true")
-			}
+			require.NoError(t, err)
+			assert.False(t, result)
 
 			// Set the value
 			err = module.Set(ctx)
-			if err != nil {
-				t.Fatalf("Set failed with error: %v", err)
-			}
+			require.NoError(t, err)
 
-			// Verify the value was set by retrieving the ConfigMap directly
+			// Verify the value was set
 			cm, err = clientset.CoreV1().ConfigMaps(testNamespace).Get(
 				context.Background(),
 				testConfigMapName,
 				metav1.GetOptions{},
 			)
-			if err != nil {
-				t.Fatalf("Failed to get ConfigMap: %v", err)
-			}
-
-			// Verify the key and value were set correctly
-			if value, exists := cm.Data[testKey]; !exists {
-				t.Errorf("Expected key %s to exist in ConfigMap, but it doesn't", testKey)
-			} else if value != testValue {
-				t.Errorf("Expected value to be %s, got %s", testValue, value)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, testValue, cm.Data[testKey])
 
 			// Update the configMapObj with the updated ConfigMap
 			configMapObj = &configMap{
@@ -577,40 +515,26 @@ func TestConfigMapValueModule(t *testing.T) {
 			}
 			inputs[inputConfigMap] = blackstart.NewInputFromValue(configMapObj)
 
-			// Check that the value was set correctly using the module
+			// Check that the value was set correctly
 			ctx = blackstart.InputsToContext(context.Background(), inputs)
 			result, err = module.Check(ctx)
-			if err != nil {
-				t.Fatalf("Check failed with error: %v", err)
-			}
-			if !result {
-				t.Errorf("Expected Check to return true for key that exists with correct value, got false")
-			}
+			require.NoError(t, err)
+			assert.True(t, result)
 
-			// 6. Use the module to delete a value in the configmap, verify it's missing
-			// Set DoesNotExist mode to delete the key
+			// Delete the value using Set with DoesNotExist set
 			ctx = blackstart.InputsToContext(context.Background(), inputs, blackstart.DoesNotExistFlag)
-
-			// Delete the value using Set in DoesNotExist mode
 			err = module.Set(ctx)
-			if err != nil {
-				t.Fatalf("Set (delete) failed with error: %v", err)
-			}
+			require.NoError(t, err)
 
-			// Verify the key was deleted by retrieving the ConfigMap directly
+			// Verify the key was deleted
 			cm, err = clientset.CoreV1().ConfigMaps(testNamespace).Get(
 				context.Background(),
 				testConfigMapName,
 				metav1.GetOptions{},
 			)
-			if err != nil {
-				t.Fatalf("Failed to get ConfigMap: %v", err)
-			}
-
-			// Verify the key no longer exists
-			if _, exists := cm.Data[testKey]; exists {
-				t.Errorf("Expected key %s to be deleted from ConfigMap, but it still exists", testKey)
-			}
+			require.NoError(t, err)
+			_, exists := cm.Data[testKey]
+			assert.False(t, exists)
 
 			// Update the configMapObj with the updated ConfigMap
 			configMapObj = &configMap{
@@ -619,25 +543,17 @@ func TestConfigMapValueModule(t *testing.T) {
 			}
 			inputs[inputConfigMap] = blackstart.NewInputFromValue(configMapObj)
 
-			// Check that the key is gone using the module
+			// Check that the key is gone
 			ctx = blackstart.InputsToContext(context.Background(), inputs)
 			result, err = module.Check(ctx)
-			if err != nil {
-				t.Fatalf("Check failed with error: %v", err)
-			}
-			if result {
-				t.Errorf("Expected Check to return false for deleted key, got true")
-			}
+			require.NoError(t, err)
+			assert.False(t, result)
 
-			// Verify it succeeds in DoesNotExist mode
+			// Verify it succeeds with DoesNotExist set
 			ctx = blackstart.InputsToContext(context.Background(), inputs, blackstart.DoesNotExistFlag)
 			result, err = module.Check(ctx)
-			if err != nil {
-				t.Fatalf("Check failed with error: %v", err)
-			}
-			if !result {
-				t.Errorf("Expected Check to return true for deleted key in DoesNotExist mode, got false")
-			}
+			require.NoError(t, err)
+			assert.True(t, result)
 		},
 	)
 }

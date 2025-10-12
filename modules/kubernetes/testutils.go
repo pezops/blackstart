@@ -2,13 +2,13 @@ package kubernetes
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
@@ -26,9 +26,7 @@ func setupEnvtest(t *testing.T) *rest.Config {
 	}
 
 	cfg, err := testEnv.Start()
-	if err != nil {
-		t.Fatalf("Failed to start test environment: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = testEnv.Stop() })
 
 	return cfg
@@ -42,17 +40,13 @@ func getEnvtestBinaries(t *testing.T) (string, error) {
 	setupEnvtestPath, err := exec.LookPath("setup-envtest")
 	if err != nil {
 		t.Logf("setup-envtest not found in PATH, attempting to install...")
-		// Try to install setup-envtest
+		// Install setup-envtest
 		installCmd := exec.Command("go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest")
-		if output, err := installCmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("failed to install setup-envtest: %w\n%s", err, output)
-		}
+		output, installErr := installCmd.CombinedOutput()
+		require.NoError(t, installErr, string(output))
 
-		// Try to find it again
 		setupEnvtestPath, err = exec.LookPath("setup-envtest")
-		if err != nil {
-			return "", fmt.Errorf("setup-envtest not found even after installation: %w", err)
-		}
+		require.NoError(t, err)
 	}
 
 	// Run setup-envtest use to get/download the latest binaries
@@ -62,17 +56,13 @@ func getEnvtestBinaries(t *testing.T) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err = cmd.Run(); err != nil {
-		return "", fmt.Errorf("setup-envtest failed: %w\nstderr: %s", err, stderr.String())
-	}
+	err = cmd.Run()
+	require.NoError(t, err)
 
 	// The output is just the path, trimmed of whitespace
 	binPath := strings.TrimSpace(stdout.String())
-	if binPath == "" {
-		return "", fmt.Errorf("failed to get binaries path from setup-envtest output: %s", stdout.String())
-	}
+	require.NotEmpty(t, binPath)
 
-	t.Logf("Using envtest binaries from: %s", binPath)
 	return binPath, nil
 }
 
