@@ -54,7 +54,7 @@ Manages a Kubernetes ConfigMap resource, but not content.
 
 - This module does not manage content of the ConfigMap. Use the '''kubernetes_configmap_value''' module 
   to manage key-value pairs in the ConfigMap.
-- Once a configmap is set to be immutable, values cannot be set or changed. Do not set a ConfigMap to be 
+- Once a ConfigMap is set to be immutable, values cannot be set or changed. Do not set a ConfigMap to be 
   immutable before setting the values. See [Immutable ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/#configmap-immutable) 
   for more information.
 `,

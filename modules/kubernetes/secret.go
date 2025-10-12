@@ -62,7 +62,7 @@ Manages a Kubernetes Secret resource, but not content.
 
 - This module does not manage content of the Secret. Use the '''kubernetes_secret_value''' module 
   to manage key-value pairs in the Secret.
-- Once a secret is set to be immutable, values cannot be set or changed. Do not set a Secret to be 
+- Once a Secret is set to be immutable, values cannot be set or changed. Do not set a Secret to be 
   immutable before setting the values. See [Immutable Secrets](https://kubernetes.io/docs/concepts/configuration/secret/#secret-immutable) 
   for more information.
 `,
