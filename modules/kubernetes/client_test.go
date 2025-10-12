@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pezops/blackstart"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/pezops/blackstart"
 )
 
 func TestClientModule_Info(t *testing.T) {
@@ -212,62 +213,3 @@ func TestClientModule_Set(t *testing.T) {
 		},
 	)
 }
-
-//func TestClientModule_Integration(t *testing.T) {
-//	// This test demonstrates the full lifecycle of the client module
-//	// in a real scenario (using envtest)
-//
-//	ctx := context.Background()
-//
-//	cfg := setupEnvtest(t)
-//
-//	// Create a clientset to verify our test environment
-//	verifyClientset, err := kubernetes.NewForConfig(cfg)
-//	require.NoError(t, err)
-//
-//	module := NewClientModule()
-//
-//	t.Run(
-//		"client module info", func(t *testing.T) {
-//			info := module.Info()
-//			assert.Equal(t, "kubernetes_client", info.Id)
-//		},
-//	)
-//
-//	t.Run(
-//		"client module validate", func(t *testing.T) {
-//			operation := blackstart.Operation{
-//				Module: "kubernetes_client",
-//				Id:     "test",
-//				Inputs: map[string]blackstart.Input{},
-//			}
-//			tErr := module.Validate(operation)
-//			assert.NoError(t, tErr)
-//		},
-//	)
-//
-//	t.Run(
-//		"client module check", func(t *testing.T) {
-//			inputs := map[string]blackstart.Input{
-//				inputContext: blackstart.NewInputFromValue(""),
-//			}
-//			moduleCtx := blackstart.InputsToContext(ctx, inputs)
-//			result, tErr := module.Check(moduleCtx)
-//			assert.NoError(t, tErr)
-//			assert.False(t, result)
-//		},
-//	)
-//
-//	t.Run(
-//		"verify test cluster connectivity", func(t *testing.T) {
-//			// Verify our test cluster is accessible
-//			version, tErr := verifyClientset.Discovery().ServerVersion()
-//			assert.NoError(t, tErr)
-//			assert.NotNil(t, version)
-//		},
-//	)
-//
-//	// Note: We don't test Set with actual kubeconfig loading because
-//	// that requires a real kubeconfig file, which is not available in
-//	// the test environment. The envtest environment doesn't use kubeconfig.
-//}
