@@ -196,7 +196,7 @@ func TestSecretValueModule_Check(t *testing.T) {
 			expectedResult: true,
 		},
 		{
-			name:           "does not exist mode, existing key",
+			name:           "does not exist existing key",
 			secretName:     "test-secret",
 			namespace:      "test-namespace",
 			key:            "existing-key",
@@ -337,7 +337,7 @@ func TestSecretValueModule_Set(t *testing.T) {
 			},
 		},
 		{
-			name:         "delete key in does not exist mode",
+			name:         "does not exist existing key",
 			secretName:   "test-secret",
 			namespace:    "test-namespace",
 			key:          "existing-key",
@@ -446,13 +446,13 @@ func TestSecretValueModule(t *testing.T) {
 				inputValue:  blackstart.NewInputFromValue(testValue),
 			}
 
-			// Check for a missing Secret (regular mode)
+			// Check for a missing Secret
 			ctx := blackstart.InputsToContext(context.Background(), inputs)
 			result, err := module.Check(ctx)
 			require.NoError(t, err)
 			assert.False(t, result)
 
-			// Check for a missing Secret in "does not exist" mode
+			// Check for a missing Secret with "does not exist" set
 			ctx = blackstart.InputsToContext(context.Background(), inputs, blackstart.DoesNotExistFlag)
 			result, err = module.Check(ctx)
 			require.NoError(t, err)
