@@ -32,22 +32,7 @@ Manages a Kubernetes ConfigMap resource, but not content.
 
 ## Examples
 
-### Configure ConfigMap to be Immutable
-
-```yaml
-id: immutable-configmap
-module: kubernetes_configmap
-inputs:
-  client:
-    fromDependency:
-      id: k8s-client
-      output: client
-  name: my-immutable-config
-  namespace: default
-  immutable: true
-```
-
-### Create ConfigMap
+### Basic ConfigMap Usage
 
 ```yaml
 id: create-configmap
@@ -59,4 +44,53 @@ inputs:
       output: client
   name: my-config
   namespace: default
+```
+
+### Configure ConfigMap to be Immutable
+
+```yaml
+operations:
+  - id: k8s_client
+    module: kubernetes_client
+  - id: myapp_configmap
+    module: kubernetes_configmap
+    name: MyApp ConfigMap
+    inputs:
+      client:
+        fromDependency:
+          id: k8s_client
+          output: client
+      namespace: myapp
+      name: myapp-config
+  - id: myapp_db_host
+    module: kubernetes_configmap_value
+    inputs:
+      configmap:
+        fromDependency:
+          id: myapp_configmap
+          output: configmap
+      key: db_host
+      value: db.myapp.svc.cluster.local
+  - id: myapp_db_port
+    module: kubernetes_configmap_value
+    inputs:
+      configmap:
+        fromDependency:
+          id: myapp_configmap
+          output: configmap
+      key: db_port
+      value: "5432"
+  - id: myapp_configmap_immutable
+    module: kubernetes_configmap
+    inputs:
+      client:
+        fromDependency:
+          id: k8s_client
+          output: client
+      namespace: myapp
+      name: myapp-config
+      immutable: true
+    dependsOn:
+      - myapp_db_host
+      - myapp_db_port
 ```
