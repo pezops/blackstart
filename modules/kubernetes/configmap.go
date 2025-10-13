@@ -12,6 +12,7 @@ import (
 	clientcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	"github.com/pezops/blackstart"
+	"github.com/pezops/blackstart/util"
 )
 
 func init() {
@@ -43,9 +44,21 @@ type configMapModule struct{}
 
 func (c *configMapModule) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
-		Id:          "kubernetes_configmap",
-		Name:        "Kubernetes ConfigMap",
-		Description: "Manages a Kubernetes ConfigMap resource, but not content.",
+		Id:   "kubernetes_configmap",
+		Name: "Kubernetes ConfigMap",
+		Description: util.CleanString(
+			`
+Manages a Kubernetes ConfigMap resource, but not content.
+
+**Notes**
+
+- This module does not manage content of the ConfigMap. Use the '''kubernetes_configmap_value''' module 
+  to manage key-value pairs in the ConfigMap.
+- Once a ConfigMap is set to be immutable, values cannot be set or changed. Do not set a ConfigMap to be 
+  immutable before setting the values. See [Immutable ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/#configmap-immutable) 
+  for more information.
+`,
+		),
 		Inputs: map[string]blackstart.InputValue{
 			inputName: {
 				Description: "Name of the ConfigMap",
@@ -63,6 +76,12 @@ func (c *configMapModule) Info() blackstart.ModuleInfo {
 				Type:        reflect.TypeFor[kubernetes.Interface](),
 				Required:    true,
 			},
+			inputImmutable: {
+				Description: "Whether the ConfigMap should be immutable. When missing (default), immutability is not managed.",
+				Type:        reflect.TypeFor[*bool](),
+				Required:    false,
+				Default:     nil,
+			},
 		},
 		Outputs: map[string]blackstart.OutputValue{
 			outputConfigMap: {
@@ -71,7 +90,7 @@ func (c *configMapModule) Info() blackstart.ModuleInfo {
 			},
 		},
 		Examples: map[string]string{
-			"Set ConfigMap Value": `id: create-configmap
+			"Create ConfigMap": `id: create-configmap
 module: kubernetes_configmap
 inputs:
   client:
@@ -80,6 +99,16 @@ inputs:
       output: client
   name: my-config
   namespace: default`,
+			"Configure ConfigMap to be Immutable": `id: immutable-configmap
+module: kubernetes_configmap
+inputs:
+  client:
+    fromDependency:
+      id: k8s-client
+      output: client
+  name: my-immutable-config
+  namespace: default
+  immutable: true`,
 		},
 	}
 }
@@ -154,6 +183,26 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 
 	// Get the ConfigMap
 	if cm != nil {
+		// Check if immutable field matches desired state (only if immutable input is provided)
+		var immutableInput blackstart.Input
+		immutableInput, err = ctx.Input(inputImmutable)
+		if err != nil {
+			return false, err
+		}
+		if immutableInput.Any() != nil {
+			// immutableInput is provided and not nil
+			var desiredImmutablePtr *bool
+			desiredImmutablePtr, ok = immutableInput.Any().(*bool)
+			if ok && desiredImmutablePtr != nil {
+				desiredImmutable := *desiredImmutablePtr
+				currentImmutable := cm.Immutable != nil && *cm.Immutable
+
+				if desiredImmutable != currentImmutable {
+					return false, nil
+				}
+			}
+		}
+
 		err = ctx.Output(
 			"configmap", &configMap{
 				cmi: cmi,
@@ -231,6 +280,21 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 					},
 					Data: map[string]string{},
 				}
+
+				// Only set immutable if the input is provided and not nil
+				var immutableInput blackstart.Input
+				immutableInput, err = ctx.Input(inputImmutable)
+				if err != nil {
+					return err
+				}
+
+				if immutableInput.Any() != nil {
+					var desiredImmutablePtr *bool
+					if desiredImmutablePtr, ok = immutableInput.Any().(*bool); ok && desiredImmutablePtr != nil {
+						newCm.Immutable = desiredImmutablePtr
+					}
+				}
+
 				_, err = cmi.Create(ctx, newCm, metav1.CreateOptions{})
 				return err
 			}
@@ -240,6 +304,37 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 
 	// ConfigMap should exist
 	if cm != nil {
+		needsUpdate := false
+
+		// Check if we need to update the immutable field (only if immutable input is provided)
+		var immutableInput blackstart.Input
+		immutableInput, err = ctx.Input(inputImmutable)
+		if err != nil {
+			return err
+		}
+		if immutableInput.Any() != nil {
+			// immutableInput is provided and not nil
+			var desiredImmutablePtr *bool
+			desiredImmutablePtr, ok = immutableInput.Any().(*bool)
+			if ok && desiredImmutablePtr != nil {
+				desiredImmutable := *desiredImmutablePtr
+				currentImmutable := cm.Immutable != nil && *cm.Immutable
+
+				if desiredImmutable != currentImmutable {
+					needsUpdate = true
+					cm.Immutable = desiredImmutablePtr
+				}
+			}
+		}
+
+		// Update the ConfigMap if needed
+		if needsUpdate {
+			cm, err = cmi.Update(ctx, cm, metav1.UpdateOptions{})
+			if err != nil {
+				return err
+			}
+		}
+
 		err = ctx.Output(
 			"configmap", &configMap{
 				cmi: cmi,
