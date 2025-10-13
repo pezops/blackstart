@@ -104,7 +104,7 @@ Manages a Kubernetes Secret resource, but not content.
 			},
 		},
 		Examples: map[string]string{
-			"Create Secret": `id: create-secret
+			"Basic Secret Usage": `id: create-secret
 module: kubernetes_secret
 inputs:
   client:
@@ -113,16 +113,51 @@ inputs:
       output: client
   name: my-secret
   namespace: default`,
-			"Configure Secret to be Immutable": `id: immutable-secret
-module: kubernetes_secret
-inputs:
-  client:
-    fromDependency:
-      id: k8s-client
-      output: client
-  name: my-immutable-secret
-  namespace: default
-  immutable: true`,
+			"Configure Secret to be Immutable": `operations:
+  - id: k8s_client
+    module: kubernetes_client
+  - id: myapp_secret
+    module: kubernetes_secret
+    name: MyApp Secret
+    inputs:
+      client:
+        fromDependency:
+          id: k8s_client
+          output: client
+      namespace: myapp
+      name: myapp-secret
+  - id: myapp_db_host
+    module: kubernetes_secret_value
+    inputs:
+      secret:
+        fromDependency:
+          id: myapp_secret
+          output: secret
+      key: db_host
+      value: db.myapp.svc.cluster.local
+  - id: myapp_db_port
+    module: kubernetes_secret_value
+    inputs:
+      secret:
+        fromDependency:
+          id: myapp_secret
+          output: secret
+      key: db_port
+      value: "5432"
+  - id: myapp_secret_immutable
+    module: kubernetes_secret
+    inputs:
+      client:
+        fromDependency:
+          id: k8s_client
+          output: client
+      namespace: myapp
+      name: myapp-secret
+      immutable: true
+    dependsOn:
+      - myapp_db_host
+      - myapp_db_port
+`,
 		},
 	}
 }
