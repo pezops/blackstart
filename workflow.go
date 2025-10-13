@@ -196,9 +196,11 @@ func checkInputsOutputs(op *Operation, info ModuleInfo, opsInfo map[string]Modul
 				)
 			}
 		} else {
+			var depInfo ModuleInfo
+			var output OutputValue
 			depId := input.DependencyId()
 			// Get the output info from the dependency operation.
-			depInfo, ok := opsInfo[depId]
+			depInfo, ok = opsInfo[depId]
 			if !ok {
 				return fmt.Errorf(
 					"dependency operation %q for input %q in operation %q not found",
@@ -206,7 +208,7 @@ func checkInputsOutputs(op *Operation, info ModuleInfo, opsInfo map[string]Modul
 				)
 			}
 			outputKey := input.OutputKey()
-			output, ok := depInfo.Outputs[outputKey]
+			output, ok = depInfo.Outputs[outputKey]
 			if !ok {
 				return fmt.Errorf(
 					"output %q from dependency operation %q for input %q in operation %q not found",
@@ -340,5 +342,20 @@ func matchesType(v any, t reflect.Type) bool {
 	if t.Kind() == reflect.Interface {
 		return vt.Implements(t)
 	}
-	return vt == t || vt.AssignableTo(t)
+
+	// Check direct assignment
+	if vt == t || vt.AssignableTo(t) {
+		return true
+	}
+
+	// If target is a pointer type, check if the value type matches the pointer's element type
+	// This allows bool to be assignable to *bool, string to *string, etc.
+	if t.Kind() == reflect.Ptr {
+		elemType := t.Elem()
+		if vt == elemType || vt.AssignableTo(elemType) {
+			return true
+		}
+	}
+
+	return false
 }

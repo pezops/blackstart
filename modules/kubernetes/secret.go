@@ -91,7 +91,7 @@ Manages a Kubernetes Secret resource, but not content.
 				Default:     "Opaque",
 			},
 			inputImmutable: {
-				Description: "Whether the Secret should be immutable. When missing (default), immutability is not managed.",
+				Description: "Make the Secret immutable. Ignored if not set (default).",
 				Type:        reflect.TypeFor[*bool](),
 				Required:    false,
 				Default:     nil,
@@ -217,15 +217,14 @@ func (s *secretModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 		if immutableInput.Any() != nil {
 			// immutableInput is provided and not nil
-			var desiredImmutablePtr *bool
-			desiredImmutablePtr, ok = immutableInput.Any().(*bool)
-			if ok && desiredImmutablePtr != nil {
-				desiredImmutable := *desiredImmutablePtr
-				currentImmutable := sec.Immutable != nil && *sec.Immutable
+			desiredImmutable := immutableInput.Bool()
+			if sec.Immutable == nil {
+				return false, nil
+			}
+			currentImmutable := sec.Immutable
 
-				if desiredImmutable != currentImmutable {
-					return false, nil
-				}
+			if desiredImmutable != *currentImmutable {
+				return false, nil
 			}
 		}
 
@@ -312,14 +311,15 @@ func (s *secretModule) Set(ctx blackstart.ModuleContext) error {
 			}
 
 			if immutableInput.Any() != nil {
-				var desiredImmutablePtr *bool
-				if desiredImmutablePtr, ok = immutableInput.Any().(*bool); ok && desiredImmutablePtr != nil {
-					newSec.Immutable = desiredImmutablePtr
-				}
+				desiredImmutable := immutableInput.Bool()
+				newSec.Immutable = &desiredImmutable
 			}
 
 			_, err = si.Create(ctx, newSec, metav1.CreateOptions{})
-			return err
+			if err != nil {
+				return err
+			}
+			return ctx.Output("secret", &secret{si: si, s: newSec})
 		}
 		return err
 	}
@@ -348,16 +348,12 @@ func (s *secretModule) Set(ctx blackstart.ModuleContext) error {
 		}
 		if immutableInput.Any() != nil {
 			// immutableInput is provided and not nil
-			var desiredImmutablePtr *bool
-			desiredImmutablePtr, ok = immutableInput.Any().(*bool)
-			if ok && desiredImmutablePtr != nil {
-				desiredImmutable := *desiredImmutablePtr
-				currentImmutable := sec.Immutable != nil && *sec.Immutable
+			desiredImmutable := immutableInput.Bool()
+			currentImmutable := sec.Immutable
 
-				if desiredImmutable != currentImmutable {
-					needsUpdate = true
-					sec.Immutable = desiredImmutablePtr
-				}
+			if currentImmutable == nil || desiredImmutable != *currentImmutable {
+				needsUpdate = true
+				sec.Immutable = &desiredImmutable
 			}
 		}
 
@@ -369,11 +365,7 @@ func (s *secretModule) Set(ctx blackstart.ModuleContext) error {
 			}
 		}
 
-		err = ctx.Output("secret", &secret{si: si, s: sec})
-		if err != nil {
-			return err
-		}
-		return nil
+		return ctx.Output("secret", &secret{si: si, s: sec})
 	}
 
 	return fmt.Errorf("could not determine if Secret '%s/%s' exists", namespace, name)
