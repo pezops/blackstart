@@ -1,7 +1,6 @@
 package kubernetes
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 
@@ -77,7 +76,7 @@ Manages a Kubernetes ConfigMap resource, but not content.
 				Required:    true,
 			},
 			inputImmutable: {
-				Description: "Whether the ConfigMap should be immutable. When missing (default), immutability is not managed.",
+				Description: "Make the ConfigMap immutable. Ignored if not set (default).",
 				Type:        reflect.TypeFor[*bool](),
 				Required:    false,
 				Default:     nil,
@@ -90,7 +89,7 @@ Manages a Kubernetes ConfigMap resource, but not content.
 			},
 		},
 		Examples: map[string]string{
-			"Create ConfigMap": `id: create-configmap
+			"Basic ConfigMap Usage": `id: create-configmap
 module: kubernetes_configmap
 inputs:
   client:
@@ -99,16 +98,51 @@ inputs:
       output: client
   name: my-config
   namespace: default`,
-			"Configure ConfigMap to be Immutable": `id: immutable-configmap
-module: kubernetes_configmap
-inputs:
-  client:
-    fromDependency:
-      id: k8s-client
-      output: client
-  name: my-immutable-config
-  namespace: default
-  immutable: true`,
+			"Configure ConfigMap to be Immutable": `operations:
+  - id: k8s_client
+    module: kubernetes_client
+  - id: myapp_configmap
+    module: kubernetes_configmap
+    name: MyApp ConfigMap
+    inputs:
+      client:
+        fromDependency:
+          id: k8s_client
+          output: client
+      namespace: myapp
+      name: myapp-config
+  - id: myapp_db_host
+    module: kubernetes_configmap_value
+    inputs:
+      configmap:
+        fromDependency:
+          id: myapp_configmap
+          output: configmap
+      key: db_host
+      value: db.myapp.svc.cluster.local
+  - id: myapp_db_port
+    module: kubernetes_configmap_value
+    inputs:
+      configmap:
+        fromDependency:
+          id: myapp_configmap
+          output: configmap
+      key: db_port
+      value: "5432"
+  - id: myapp_configmap_immutable
+    module: kubernetes_configmap
+    inputs:
+      client:
+        fromDependency:
+          id: k8s_client
+          output: client
+      namespace: myapp
+      name: myapp-config
+      immutable: true
+    dependsOn:
+      - myapp_db_host
+      - myapp_db_port
+`,
 		},
 	}
 }
@@ -165,14 +199,8 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	cm, err = cmi.Get(ctx, name, metav1.GetOptions{})
 
 	if ctx.DoesNotExist() {
-		if err != nil {
-			var se *apierrors.StatusError
-			if errors.As(err, &se) {
-				if se.ErrStatus.Code == 404 {
-					// ConfigMap doesn't exist
-					return true, nil
-				}
-			}
+		if apierrors.IsNotFound(err) {
+			return true, nil
 		}
 		return false, err
 	}
@@ -191,24 +219,18 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 		if immutableInput.Any() != nil {
 			// immutableInput is provided and not nil
-			var desiredImmutablePtr *bool
-			desiredImmutablePtr, ok = immutableInput.Any().(*bool)
-			if ok && desiredImmutablePtr != nil {
-				desiredImmutable := *desiredImmutablePtr
-				currentImmutable := cm.Immutable != nil && *cm.Immutable
+			desiredImmutable := immutableInput.Bool()
+			if cm.Immutable == nil {
+				return false, nil
+			}
+			currentImmutable := cm.Immutable
 
-				if desiredImmutable != currentImmutable {
-					return false, nil
-				}
+			if desiredImmutable != *currentImmutable {
+				return false, nil
 			}
 		}
 
-		err = ctx.Output(
-			"configmap", &configMap{
-				cmi: cmi,
-				cm:  cm,
-			},
-		)
+		err = ctx.Output("configmap", &configMap{cmi: cmi, cm: cm})
 		if err != nil {
 			return false, err
 		}
@@ -248,12 +270,9 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 		var cm *corev1.ConfigMap
 		cm, err = cmi.Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			var se *apierrors.StatusError
-			if errors.As(err, &se) {
-				if se.ErrStatus.Code == 404 {
-					// ConfigMap doesn't exist
-					return nil
-				}
+			if apierrors.IsNotFound(err) {
+				// ConfigMap doesn't exist
+				return nil
 			}
 			return err
 		}
@@ -269,35 +288,34 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 	// Try to get the ConfigMap
 	cm, err := cmi.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		var se *apierrors.StatusError
-		if errors.As(err, &se) {
-			if se.ErrStatus.Code == 404 {
-				// ConfigMap doesn't exist
-				newCm := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      name,
-						Namespace: namespace,
-					},
-					Data: map[string]string{},
-				}
+		if apierrors.IsNotFound(err) {
+			// ConfigMap doesn't exist
+			newCm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Data: map[string]string{},
+			}
 
-				// Only set immutable if the input is provided and not nil
-				var immutableInput blackstart.Input
-				immutableInput, err = ctx.Input(inputImmutable)
-				if err != nil {
-					return err
-				}
-
-				if immutableInput.Any() != nil {
-					var desiredImmutablePtr *bool
-					if desiredImmutablePtr, ok = immutableInput.Any().(*bool); ok && desiredImmutablePtr != nil {
-						newCm.Immutable = desiredImmutablePtr
-					}
-				}
-
-				_, err = cmi.Create(ctx, newCm, metav1.CreateOptions{})
+			// Only set immutable if the input is provided and not nil
+			var immutableInput blackstart.Input
+			immutableInput, err = ctx.Input(inputImmutable)
+			if err != nil {
 				return err
 			}
+
+			if immutableInput.Any() != nil {
+				desiredImmutable := immutableInput.Bool()
+				newCm.Immutable = &desiredImmutable
+			}
+
+			_, err = cmi.Create(ctx, newCm, metav1.CreateOptions{})
+			if err != nil {
+				return err
+			}
+
+			return ctx.Output("configmap", &configMap{cmi: cmi, cm: newCm})
 		}
 		return err
 	}
@@ -314,16 +332,12 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 		}
 		if immutableInput.Any() != nil {
 			// immutableInput is provided and not nil
-			var desiredImmutablePtr *bool
-			desiredImmutablePtr, ok = immutableInput.Any().(*bool)
-			if ok && desiredImmutablePtr != nil {
-				desiredImmutable := *desiredImmutablePtr
-				currentImmutable := cm.Immutable != nil && *cm.Immutable
+			desiredImmutable := immutableInput.Bool()
+			currentImmutable := cm.Immutable
 
-				if desiredImmutable != currentImmutable {
-					needsUpdate = true
-					cm.Immutable = desiredImmutablePtr
-				}
+			if currentImmutable == nil || desiredImmutable != *currentImmutable {
+				needsUpdate = true
+				cm.Immutable = &desiredImmutable
 			}
 		}
 
@@ -335,16 +349,7 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 			}
 		}
 
-		err = ctx.Output(
-			"configmap", &configMap{
-				cmi: cmi,
-				cm:  cm,
-			},
-		)
-		if err != nil {
-			return err
-		}
-		return nil
+		return ctx.Output("configmap", &configMap{cmi: cmi, cm: cm})
 	}
 
 	return fmt.Errorf("could not determine if ConfigMap '%s/%s' exists", namespace, name)
