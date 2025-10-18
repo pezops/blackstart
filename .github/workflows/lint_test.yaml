@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Checkout PR code
         uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -60,8 +58,6 @@ jobs:
     steps:
       - name: Checkout PR code
         uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -72,13 +68,35 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
         if: always()
-        continue-on-error: true
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 1
+
+  upload-coverage:
+    name: Upload Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: test
+    if: always() && needs.test.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: coverage-report
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage.out
           flags: unittests
+          use_oidc: 'true'
 
   # Summary job that will be used for branch protection
   lint-test-success:
