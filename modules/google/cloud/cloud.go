@@ -122,25 +122,24 @@ func AdcIamUser(ctx context.Context) (string, error) {
 // is useful for determining the IAM user that is being used to make requests to Google Cloud
 // services. The IAM user is determined by querying the OAuth2 token info endpoint.
 func IamUser(ctx context.Context, creds *google.Credentials) (string, error) {
-
-	// Use the token to query the user's identity
-	oauth2Service, err := googleoauth2.NewService(ctx)
-	if err != nil {
-		return "", err
-	}
-
 	type credsJson struct {
 		Type        string `json:"type,omitempty"`
 		ClientEmail string `json:"client_email,omitempty"`
 	}
 	var credsJsonData credsJson
-	err = json.Unmarshal(creds.JSON, &credsJsonData)
+	err := json.Unmarshal(creds.JSON, &credsJsonData)
 	if err != nil {
 		return "", err
 	}
 
 	if credsJsonData.Type == "service_account" {
 		return credsJsonData.ClientEmail, nil
+	}
+
+	// Use the token to query the user's identity
+	oauth2Service, err := googleoauth2.NewService(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	token, err := creds.TokenSource.Token()

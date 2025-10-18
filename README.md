@@ -1,5 +1,7 @@
 # Blackstart
 
+[![Lint and Test](https://github.com/pezops/blackstart/actions/workflows/lint_test.yaml/badge.svg)](https://github.com/pezops/blackstart/actions/workflows/lint_test.yaml)
+
 Starting a system from scratch can require a lot of manual work. Blackstart provides an ordered
 workflow for bootstrapping cloud infrastructure and application deployments after the initial
 compute and other infrastructure is deployed. It is designed to be idempotent, implementing a "check

@@ -101,8 +101,6 @@ func CleanString(s string) string {
 	return s
 }
 
-type ClusterConfigFunc func() (*rest.Config, error)
-
 // GetK8sClientConfig creates a Kubernetes client config using the default loading rules.
 func GetK8sClientConfig() (*rest.Config, error) {
 	return GetK8sClientConfigWithContext("")
