@@ -23,7 +23,7 @@ func (s *secretValueModule) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:          "kubernetes_secret_value",
 		Name:        "Kubernetes Secret Value",
-		Description: "Manages key-value pairs in a Kubernetes Secret resource.",
+		Description: "Manages key-value pairs in a Kubernetes Secret resource.\n\n" + updatePolicyDocs,
 		Inputs: map[string]blackstart.InputValue{
 			inputSecret: {
 				Description: "Secret resource",
@@ -39,6 +39,12 @@ func (s *secretValueModule) Info() blackstart.ModuleInfo {
 				Description: "Value to set for the key",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
+			},
+			inputUpdatePolicy: {
+				Description: "Update policy for the key-value pair",
+				Type:        reflect.TypeFor[string](),
+				Required:    false,
+				Default:     updatePolicyOverwrite,
 			},
 		},
 		Outputs: map[string]blackstart.OutputValue{},
@@ -79,6 +85,19 @@ func (s *secretValueModule) Validate(op blackstart.Operation) error {
 		return fmt.Errorf("input '%s' must be provided", inputSecret)
 	}
 
+	// A valid update policy is required
+	var updatePolicyInput blackstart.Input
+	updatePolicyInput, ok = op.Inputs[inputUpdatePolicy]
+	if !ok {
+		return fmt.Errorf("input '%s' must be provided", inputUpdatePolicy)
+	}
+	updatePolicy := updatePolicyInput.String()
+
+	_, ok = updatePolicies[updatePolicy]
+	if !ok {
+		return fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+	}
+
 	return nil
 }
 
@@ -109,6 +128,12 @@ func (s *secretValueModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	}
 	desiredValue := desiredValueInput.String()
 
+	updatePolicyInput, err := ctx.Input(inputUpdatePolicy)
+	if err != nil {
+		return false, err
+	}
+	updatePolicy := updatePolicyInput.String()
+
 	// If DoesNotExist is true, success is either the Secret or key does not exist
 	if ctx.DoesNotExist() {
 		_, keyExists := sec.s.Data[key]
@@ -119,12 +144,31 @@ func (s *secretValueModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		return false, nil
 	}
 
-	actualValue, exists := sec.s.Data[key]
+	actualValueBytes, exists := sec.s.Data[key]
 	if !exists {
 		return false, nil
 	}
+	actualValue := string(actualValueBytes)
 
-	return string(actualValue) == desiredValue, nil
+	switch updatePolicy {
+	case updatePolicyOverwrite:
+		return actualValue == desiredValue, nil
+	case updatePolicyPreserve:
+		if actualValue != "" {
+			return true, nil
+		}
+		return false, nil
+	case updatePolicyPreserveAny:
+		return true, nil
+	case updatePolicyFail:
+		if actualValue != desiredValue {
+			return false, fmt.Errorf(
+				"key '%s' had a value changed, but updating the value is not allowed due to the update policy", key,
+			)
+		}
+		return true, nil
+	}
+	return false, fmt.Errorf("unhandled update policy: %s", updatePolicy)
 }
 
 func (s *secretValueModule) Set(ctx blackstart.ModuleContext) error {
