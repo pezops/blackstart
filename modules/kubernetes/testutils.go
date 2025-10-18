@@ -41,7 +41,7 @@ func getEnvtestBinaries(t *testing.T) (string, error) {
 	if err != nil {
 		t.Logf("setup-envtest not found in PATH, attempting to install...")
 		// Install setup-envtest
-		installCmd := exec.Command("go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest")
+		installCmd := exec.Command("go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.22")
 		output, installErr := installCmd.CombinedOutput()
 		require.NoError(t, installErr, string(output))
 

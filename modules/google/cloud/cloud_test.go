@@ -3,26 +3,10 @@ package cloud
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/oauth2/google"
 )
-
-func TestUserEmail(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	params := google.CredentialsParams{}
-	params.Scopes = []string{"email"}
-	token, err := google.FindDefaultCredentialsWithParams(ctx, params)
-	if err != nil {
-		t.Fatalf("Failed to find default credentials: %v", err)
-	}
-
-	println(token.JSON)
-
-}
 
 func TestProjectIdFromCredentials(t *testing.T) {
 

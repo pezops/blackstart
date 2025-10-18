@@ -11,8 +11,6 @@ import (
 	"github.com/pezops/blackstart/util"
 )
 
-type clusterConfigFunc func() (*rest.Config, error)
-
 func init() {
 	blackstart.RegisterModule("kubernetes_client", NewClientModule)
 }
