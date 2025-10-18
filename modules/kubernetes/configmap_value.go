@@ -23,7 +23,7 @@ func (c *configMapValueModule) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:          "kubernetes_configmap_value",
 		Name:        "Kubernetes ConfigMap Value",
-		Description: "Manages key-value pairs in a Kubernetes ConfigMap resource.",
+		Description: "Manages key-value pairs in a Kubernetes ConfigMap resource.\n\n" + updatePolicyDocs,
 		Inputs: map[string]blackstart.InputValue{
 			inputConfigMap: {
 				Description: "ConfigMap resource",
@@ -39,6 +39,12 @@ func (c *configMapValueModule) Info() blackstart.ModuleInfo {
 				Description: "Value to set for the key",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
+			},
+			inputUpdatePolicy: {
+				Description: "Update policy for the key-value pair",
+				Type:        reflect.TypeFor[string](),
+				Required:    false,
+				Default:     updatePolicyOverwrite,
 			},
 		},
 		Outputs: map[string]blackstart.OutputValue{},
@@ -79,6 +85,19 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 		return fmt.Errorf("input '%s' must be provided", inputConfigMap)
 	}
 
+	// A valid update policy is required
+	var updatePolicyInput blackstart.Input
+	updatePolicyInput, ok = op.Inputs[inputUpdatePolicy]
+	if !ok {
+		return fmt.Errorf("input '%s' must be provided", inputUpdatePolicy)
+	}
+	updatePolicy := updatePolicyInput.String()
+
+	_, ok = updatePolicies[updatePolicy]
+	if !ok {
+		return fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+	}
+
 	return nil
 }
 
@@ -109,6 +128,12 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 	}
 	desiredValue := desiredValueInput.String()
 
+	updatePolicyInput, err := ctx.Input(inputUpdatePolicy)
+	if err != nil {
+		return false, err
+	}
+	updatePolicy := updatePolicyInput.String()
+
 	// If DoesNotExist is true, success is either the ConfigMap or key does not exist
 	if ctx.DoesNotExist() {
 		_, keyExists := cm.cm.Data[key]
@@ -124,7 +149,25 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 		return false, nil
 	}
 
-	return actualValue == desiredValue, nil
+	switch updatePolicy {
+	case updatePolicyOverwrite:
+		return actualValue == desiredValue, nil
+	case updatePolicyPreserve:
+		if actualValue != "" {
+			return true, nil
+		}
+		return false, nil
+	case updatePolicyPreserveAny:
+		return true, nil
+	case updatePolicyFail:
+		if actualValue != desiredValue {
+			return false, fmt.Errorf(
+				"key '%s' had a value changed, but updating the value is not allowed due to the update policy", key,
+			)
+		}
+		return true, nil
+	}
+	return false, fmt.Errorf("unhandled update policy: %s", updatePolicy)
 }
 
 func (c *configMapValueModule) Set(ctx blackstart.ModuleContext) error {
