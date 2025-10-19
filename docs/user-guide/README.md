@@ -2,8 +2,9 @@
 
 # User Guide
 
-This guide helps users configure and run Blackstart. Try the [Getting Started](getting-started.md)
-guide to get started with Blackstart including common installation patterns and an example workflow.
+This guide helps users configure and run Blackstart. Try the
+[Getting Started](../getting-started.md) guide to get started with Blackstart including common
+installation patterns and an example workflow.
 
 <div class="mkdocs-hidden">
 <ul>

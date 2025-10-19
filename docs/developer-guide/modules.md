@@ -26,8 +26,7 @@ Additionally, modules for Google Cloud are under multiple sub-packages under the
 
 All modules are currently developed in-tree. A more complex import, communication, and distribution
 pattern would be needed to provide external modules. To add new modules to Blackstart, the module
-must be imported for side-effects in the
-[`internal/all_modules/all_modules.go`](internal/all_modules/all_modules.go) file.
+must be imported for side-effects in the `internal/all_modules/all_modules.go` file.
 
 ## Validate
 
@@ -37,12 +36,12 @@ Validate(op Operation) error
 
 The `Validate` method is called before the `Check` and `Set` methods. This method validates the
 operation provided. All modules are encouraged to check that all required inputs are present. All
-inputs are passed to the module as a [`Input`](#moduleinput) type. The `IsStatic` method can be used
-to check if the input is static. Non-static values are only available at runtime and cannot be
+inputs are passed to the module as a [`Input`](types.md#input) type. The `IsStatic` method can be
+used to check if the input is static. Non-static values are only available at runtime and cannot be
 checked in the `Validate` method.
 
-Any [Operation](#operation) that is not valid must return an error. This error will be propagated up
-to the user.
+Any [Operation](types.md#operation) that is not valid must return an error. This error will be
+propagated up to the user.
 
 During validation, more complex logic may be used to ensure the configuration is valid. For example,
 modules may check that specific combinations of optional inputs are specified. However, since only
@@ -60,7 +59,7 @@ the current state of the system and return `true` if the system is in the desire
 system is not in the desired state, the method must return `false`.
 
 If the desired state is met, then the `Check` method must also set all outputs in the provided
-[`ModuleContext`](module-context.md) that are expected to be returned by the module.
+[`ModuleContext`](types.md#modulecontext) that are expected to be returned by the module.
 
 <!-- prettier-ignore-start -->
 ???+ warning "Check May Affect Idempotency"
@@ -81,4 +80,4 @@ Set(ctx ModuleContext) error
 The `Set` method is called when the resource is not in the desired state. When run, the `Set` method
 may need to not simply create a resource, but inspect it and change it to the desired state. After
 configuring the resource, the `Set` method must set all outputs in the provided
-[`ModuleContext`](module-context.md) that are expected to be returned by the module.
+[`ModuleContext`](types.md#modulecontext) that are expected to be returned by the module.

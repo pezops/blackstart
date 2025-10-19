@@ -2,7 +2,7 @@ name: Lint and Test
 
 on:
   pull_request:
-    types: [ opened, synchronize, reopened ]
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - main
@@ -23,7 +23,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
           cache: true
 
       - name: Generate CRDs
@@ -33,7 +33,7 @@ jobs:
         run: |
           # Check if generated files are out of sync
           echo "::group::Check if generated files are out of sync"
-          
+
           if [[ -n $(git status --porcelain) ]]; then
             echo "❌ Generated files are out of sync with the repository"
             echo "Please run 'make crds' locally and commit the changes"
@@ -62,7 +62,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
           cache: true
 
       - name: Run tests
@@ -96,14 +96,35 @@ jobs:
         with:
           files: ./coverage.out
           flags: unittests
-          use_oidc: 'true'
+          use_oidc: "true"
+
+  docs-build:
+    name: Test Documentation Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          cache: "pip"
+          cache-dependency-path: "docs/requirements.txt"
+
+      - name: Install Python dependencies
+        run: pip install -r docs/requirements.txt
+
+      - name: Build MkDocs site with strict mode
+        run: mkdocs build --strict
 
   # Summary job that will be used for branch protection
   lint-test-success:
     name: Lint and Test Success
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    needs: [ lint, test ]
+    needs: [lint, test, docs-build]
     if: always()
     steps:
       - name: Check all jobs
@@ -112,10 +133,15 @@ jobs:
             echo "❌ Lint job failed"
             exit 1
           fi
-          
+
           if [[ "${{ needs.test.result }}" != "success" ]]; then
             echo "❌ Test job failed"
             exit 1
           fi
-          
+
+          if [[ "${{ needs.docs-build.result }}" != "success" ]]; then
+            echo "❌ Documentation build failed"
+            exit 1
+          fi
+
           echo "✅ All CI checks passed!"

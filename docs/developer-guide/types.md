@@ -24,8 +24,8 @@ be type-asserted to the desired type. The module must implement the assertion an
 when using `Any` to retrieve the input.
 
 When validating inputs, modules must check if the input is static using the `IsStatic` method. Only
-static values are able to be checked for compatability with the module in the `Validate` method.
-Values that are not static are only available at runtime.
+static values may be checked for compatability with the module in the `Validate` method. Values that
+are not static are only available at runtime.
 
 <!-- prettier-ignore-start -->
 ??? abstract "Input"
