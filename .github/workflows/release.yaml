@@ -2,7 +2,7 @@ name: Release
 
 on:
   release:
-    types: [created, published]
+    types: [published]
 
 env:
   REGISTRY: ghcr.io
@@ -53,13 +53,13 @@ jobs:
         env:
           KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.REPO_NAME }}
           KO_DEFAULTPLATFORMS: linux/amd64,linux/arm64
-          KO_DEFAULTBASEIMAGE: cgr.dev/chainguard/static:latest
-          CGO_ENABLED: 0
-          GOFLAGS: "-ldflags=-s -w -X main.Version=${{ steps.version.outputs.tag }}"
+          VERSION: ${{ steps.version.outputs.tag }}
         run: |
+          # Build image with ko and publish to GitHub Container Registry
           # --bare => don't include the import path in the image name
           # --tags => apply your git tag (without 'v' prefix)
           # --platform=all uses KO_DEFAULTPLATFORMS
+          # VERSION env var is used by .ko.yaml
           IMAGE_REF=$(ko build --bare \
             --platform=all \
             --tags "${{ steps.version.outputs.tag }}" \
