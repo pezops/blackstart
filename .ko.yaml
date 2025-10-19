@@ -1,0 +1,14 @@
+# ko configuration for building blackstart container images
+# https://ko.build/configuration/
+
+defaultBaseImage: cgr.dev/chainguard/static:latest
+
+builds:
+- id: blackstart
+  main: ./cmd/blackstart
+  env:
+  - CGO_ENABLED=0
+  ldflags:
+  - -s
+  - -w
+  - -X main.Version={{.Env.VERSION}}
