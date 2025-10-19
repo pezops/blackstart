@@ -11,6 +11,7 @@ var LogOutputEnv = getConfigEnv("LogOutput")
 var K8sNamespaceEnv = getConfigEnv("KubeNamespace")
 
 type RuntimeConfig struct {
+	Version       bool   `short:"v" long:"version" description:"Show version information"`
 	LogOutput     string `long:"log-output" env:"BLACKSTART_LOG_OUTPUT" description:"Logging output file name" default:""`
 	LogFormat     string `long:"log-format" env:"BLACKSTART_LOG_FORMAT" description:"Logging format (json, text)" default:"text"`
 	LogLevel      string `long:"log-level" env:"BLACKSTART_LOG_LEVEL" description:"Logging level" default:"info"`

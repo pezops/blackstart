@@ -27,6 +27,8 @@ import (
 	"github.com/pezops/blackstart/util"
 )
 
+var Version = "dev"
+
 func main() {
 	config, err := blackstart.ReadConfig()
 	if err != nil {
@@ -43,6 +45,11 @@ func main() {
 	if config == nil {
 		_, _ = fmt.Fprintf(os.Stdout, "configuration was empty")
 		os.Exit(1)
+	}
+
+	if config.Version {
+		fmt.Printf("Blackstart version: %s\n", Version)
+		return
 	}
 
 	ctx := context.Background()
