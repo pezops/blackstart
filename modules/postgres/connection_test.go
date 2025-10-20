@@ -93,10 +93,8 @@ func TestConnectionSetError(t *testing.T) {
 
 func TestConnectionSet(t *testing.T) {
 	pctx := context.Background()
-	pg, teardownPgContainer := createTestContainer(pctx, t)
-	defer teardownPgContainer()
 
-	dsn, err := pg.ConnectionString(pctx)
+	dsn, err := testPg.ConnectionString(pctx)
 	require.NoError(t, err)
 
 	parse, err := url.Parse(dsn)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +16,15 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func createTestContainer(ctx context.Context, t *testing.T) (*postgrestest.PostgresContainer, func()) {
+var testPg *postgrestest.PostgresContainer
+var lockPg sync.Mutex
+
+func createTestContainer(ctx context.Context) (*postgrestest.PostgresContainer, func()) {
+	lockPg.Lock()
+	defer lockPg.Unlock()
+	if testPg != nil {
+		return testPg, func() {}
+	}
 	_ = os.Setenv("TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", "/var/run/docker.sock")
 
 	waitFor := func() testcontainers.CustomizeRequestOption {
@@ -24,7 +34,8 @@ func createTestContainer(ctx context.Context, t *testing.T) (*postgrestest.Postg
 		}
 	}
 
-	postgresContainer, err := postgrestest.Run(
+	var err error
+	testPg, err = postgrestest.Run(
 		ctx,
 		"postgres:16-alpine",
 		postgrestest.WithDatabase("test"),
@@ -33,24 +44,25 @@ func createTestContainer(ctx context.Context, t *testing.T) (*postgrestest.Postg
 		waitFor(),
 	)
 	teardownContainer := func() {
-		err = postgresContainer.Terminate(ctx)
+		err = testPg.Terminate(ctx)
 		if err != nil {
-			t.Logf("failed to terminate postgres container: %v", err.Error())
+			log.Printf("failed to terminate postgres container: %v", err.Error())
 		}
 	}
 
 	if err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
+		log.Fatalf("failed to start postgres container: %v", err)
 	}
 
-	return postgresContainer, teardownContainer
-
+	return testPg, teardownContainer
 }
 
 func createTestInstance(ctx context.Context, t *testing.T) (*sql.DB, func()) {
-	postgresContainer, teardownContainer := createTestContainer(ctx, t)
+	if testPg == nil {
+		panic("Test container must be created before creating test instance")
+	}
 
-	dsn, err := postgresContainer.ConnectionString(ctx)
+	dsn, err := testPg.ConnectionString(ctx)
 	if err != nil {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
@@ -76,9 +88,5 @@ func createTestInstance(ctx context.Context, t *testing.T) (*sql.DB, func()) {
 		}
 	}
 
-	teardown := func() {
-		closeDb()
-		teardownContainer()
-	}
-	return db, teardown
+	return db, closeDb
 }
