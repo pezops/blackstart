@@ -42,27 +42,6 @@ jobs:
       - name: Build MkDocs site
         run: mkdocs build --strict
 
-      - name: Download Helm index from release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Extract the tag name from the workflow run
-          # The workflow_run was triggered by a release, so we need to find the associated tag
-          TAG_NAME="${{ github.event.workflow_run.head_branch }}"
-          
-          echo "Found tag: ${TAG_NAME}"
-          
-          # Create charts directory in site
-          mkdir -p site/charts
-          
-          # Download the index.yaml from the release
-          
-          gh release download "${TAG_NAME}" --pattern "index.yaml" --dir site/charts
-          if [[ ! -f site/charts/index.yaml ]]; then
-            echo "Helm index.yaml found in release ${TAG_NAME}"
-            exit 1
-          fi
-
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
