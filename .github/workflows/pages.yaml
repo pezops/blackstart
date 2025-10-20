@@ -16,6 +16,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  context-debug:
+    name: Debug Context
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show event context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: |
+          echo "${GITHUB_CONTEXT}"
+
   build-docs:
     name: Build Documentation (from tag)
     runs-on: ubuntu-latest
