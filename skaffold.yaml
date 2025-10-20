@@ -20,7 +20,8 @@ manifests:
   helm:
     releases:
       - name: blackstart
-        chartPath: ./charts/blackstart
+        remoteChart: blackstart
+        repo: https://pezops.github.io/charts/
         namespace: blackstart
         createNamespace: true
         setValueTemplates:
@@ -30,9 +31,4 @@ manifests:
           image.tag: "{{.IMAGE_TAG_blackstart}}"
 deploy:
   kubeContext: rancher-desktop
-  kubectl:
-    hooks:
-      before:
-      - host:
-          command: ['kubectl', 'apply', '-f', 'charts/blackstart/crds/*.yaml']
   helm: {}
