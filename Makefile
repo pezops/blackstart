@@ -8,7 +8,6 @@ SKAFFOLD=skaffold
 REQUIREMENTS_IN=docs/requirements.in
 REQUIREMENTS_TXT=docs/requirements.txt
 CRD_OUT=config/crd
-CHART_CRDS=charts/blackstart/crds
 BUILD_TOOLS_DIR=.build
 BUILD_TOOLS_DIR_BIN=$(BUILD_TOOLS_DIR)/bin
 
@@ -32,22 +31,18 @@ PRETTIER=$(BUILD_TOOLS_DIR)/bin/prettier
 GOLANGCI_LINT_VERSION=v2.4.0
 GOLANGCI_LINT=$(BUILD_TOOLS_DIR)/bin/golangci-lint
 
-# Helm: https://helm.sh
-HELM_VERSION=v3.19.0
-HELM=$(BUILD_TOOLS_DIR)/bin/helm
-
 RELEASE ?= 0.0.0-dev
 
 .PHONY: build docs-deps docs-serve crds docs-modules-gen docs-format docs-venv utils blackstart clean
 
-build: utils crds docs lint test charts
+build: utils crds docs lint test
 
 blackstart:
 	$(GO) build -o blackstart ./cmd/blackstart
 
 ## Utils
 
-utils: controller-gen prettier golangci-lint helm
+utils: controller-gen prettier golangci-lint
 
 controller-gen: $(CONTROLLER_GEN)
 $(CONTROLLER_GEN):
@@ -74,11 +69,6 @@ $(GOLANGCI_LINT):
 	@mkdir -p $(BUILD_TOOLS_DIR_BIN)
 	GOBIN="$(abspath $(BUILD_TOOLS_DIR_BIN))" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
-helm: $(HELM)
-$(HELM):
-	@mkdir -p $(BUILD_TOOLS_DIR_BIN)
-	GOBIN="$(abspath $(BUILD_TOOLS_DIR_BIN))" go install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
-
 ## Code generation
 
 gen: crds docs
@@ -95,17 +85,10 @@ test: lint
 
 crds: controller-gen
 	@mkdir -p $(CRD_OUT)
-	@mkdir -p $(CHART_CRDS)
-	@rm -f $(CHART_CRDS)/*.yaml
 	@for api in $(CRD_VERSIONS); do \
   	  echo "Generating CRDs for API version $$api"; \
 	  $(CONTROLLER_GEN) crd paths=./api/$$api/... output:crd:dir=$(CRD_OUT)/$$api; \
 	  $(CONTROLLER_GEN) object paths=./api/$$api/...; \
-	  for f in $(CRD_OUT)/$$api/*.yaml; do \
-	    base=$$(basename $$f .yaml); \
-	    echo "Linking $$f to helm chart"; \
-	    ln -s ../../../$${f} charts/blackstart/crds/$${base}-$${api}.yaml; \
-	  done; \
 	done
 
 docs: docs-modules-gen docs-format docs-requirements
@@ -134,17 +117,8 @@ docs-serve: docs-venv
 	. $(VENV)/bin/activate; \
 	$(MKDOCS) serve
 
-CHART_SRC = charts/blackstart/Chart.yaml charts/blackstart/values.yaml $(wildcard charts/blackstart/templates/*.yaml) $(wildcard charts/blackstart/crds/*.yaml)
-CHART_DIST = charts/blackstart/dist/blackstart-$(RELEASE).tgz
-
-charts: $(CHART_DIST)
-
-$(CHART_DIST): $(CHART_SRC)
-	@mkdir -p ./charts/blackstart/dist
-	$(HELM) package ./charts/blackstart --destination ./charts/blackstart/dist --version "$(RELEASE)"
-
 clean:
-	@rm -rf $(VENV) $(BUILD_TOOLS_DIR) ./charts/blackstart/dist
+	@rm -rf $(VENV) $(BUILD_TOOLS_DIR)
 
 dev: build
 	$(SKAFFOLD) dev
