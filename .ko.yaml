@@ -3,6 +3,10 @@
 
 defaultBaseImage: cgr.dev/chainguard/static:latest
 
+defaultPlatforms:
+  - linux/arm64
+  - linux/amd64
+
 builds:
 - id: blackstart
   main: ./cmd/blackstart
