@@ -185,8 +185,8 @@ jobs:
         run: |
           #Upload Helm chart to release assets
 
-          cp .build-packages/${{ steps.package.outputs.chart_file }} chart.tgz
-          gh release upload ${{ env.RELEASE_VERSION }} chart.tgz --clobber
+          mv .build-packages/${{ steps.package.outputs.chart_file }} .build-packages/chart.tgz
+          gh release upload ${{ env.RELEASE_VERSION }} .build-packages/chart.tgz --clobber
 
       - name: Download previous Helm index
         env:
