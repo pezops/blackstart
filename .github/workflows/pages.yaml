@@ -16,18 +16,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  context-debug:
-    name: Debug Context
-    runs-on: ubuntu-latest
-    steps:
-      - name: Show event context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: |
-          echo "${GITHUB_CONTEXT}"
-
   build-docs:
-    name: Build Documentation (from tag)
+    name: Build Documentation
     runs-on: ubuntu-latest
     if:
       github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha  ==
@@ -51,6 +41,27 @@ jobs:
 
       - name: Build MkDocs site
         run: mkdocs build --strict
+
+      - name: Download Helm index from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract the tag name from the workflow run
+          # The workflow_run was triggered by a release, so we need to find the associated tag
+          TAG_NAME="${{ github.event.workflow_run.head_branch }}"
+          
+          echo "Found tag: ${TAG_NAME}"
+          
+          # Create charts directory in site
+          mkdir -p site/charts
+          
+          # Download the index.yaml from the release
+          
+          gh release download "${TAG_NAME}" --pattern "index.yaml" --dir site/charts
+          if [[ ! -f site/charts/index.yaml ]]; then
+            echo "Helm index.yaml found in release ${TAG_NAME}"
+            exit 1
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
