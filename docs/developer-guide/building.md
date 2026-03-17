@@ -2,52 +2,60 @@
 
 # Building
 
+This project uses `make` as the primary developer interface for build, generation, lint, test, and
+docs workflows.
+
 ## Building with `go build`
 
-To build the `blackstart` command using `go build`, follow these steps:
+You can build the `blackstart` binary directly without `make`:
 
-1. Navigate to the root directory of the project.
-2. Run the following command to build the binary:
+```sh
+go build -o blackstart ./cmd/blackstart
+```
 
-   ```sh
-   go build -o blackstart ./cmd/blackstart
-   ```
+This produces a `blackstart` executable in the repository root.
 
-This will create an executable named `blackstart` in the root directory.
+## Primary Make Targets
 
-## Building with `ko`
+Run these from the repository root:
 
-To build a container image using `ko`, follow these steps:
+| Target            | What it does                                                            |
+| ----------------- | ----------------------------------------------------------------------- |
+| `make blackstart` | Builds the `blackstart` binary (`./cmd/blackstart`).                    |
+| `make crds`       | Regenerates CRDs and API deepcopy code for supported API versions.      |
+| `make docs`       | Regenerates module docs, formats docs, and refreshes docs requirements. |
+| `make lint`       | Runs generation + lint checks.                                          |
+| `make test`       | Runs tests (depends on lint).                                           |
+| `make build`      | Full pipeline: utils, CRDs, docs, lint, and test.                       |
+| `make docs-serve` | Serves docs locally with MkDocs.                                        |
 
-1. Ensure you have `ko` installed. You can install it by following the instructions
-   [here](https://github.com/google/ko#installation).
-2. Set the `KO_DOCKER_REPO` environment variable to `ko.local` to use a local container name:
+## Typical Development Flows
 
-   ```sh
-   export KO_DOCKER_REPO=ko.local
-   ```
+Quick local binary build:
 
-3. Run the following command to build the container image:
+```sh
+make blackstart
+```
 
-   ```sh
-   ko build ./cmd/blackstart
-   ```
+Regenerate docs + CRDs after API/module changes:
 
-This will build the `blackstart` command and create a container image with a local name that is not
-pushed to a registry.
+```sh
+make crds
+make docs
+```
 
-## Building with `skaffold`
+Run full local validation before opening a PR:
 
-To build and deploy the `blackstart` command using `skaffold`, follow these steps:
+```sh
+make build
+```
 
-1. Ensure you have `skaffold` installed. You can install it by following the instructions
-   [here](httpss://skaffold.dev/docs/install/).
-2. Run the following command to build the container image and deploy the Helm chart:
+Install `pre-commit` and enable hooks:
 
-   ```sh
-   skaffold dev
-   ```
+```sh
+pip install pre-commit
+pre-commit install
+```
 
-This will build the `blackstart` command, create a container image with a local name, and deploy the
-Helm chart to the `rancher-desktop` Kubernetes cluster. The `skaffold dev` command will also watch
-for changes to the source code and automatically rebuild and redeploy the application.
+This is optional but recommended. Running hooks before each commit helps catch lint failures before
+they fail in CI.

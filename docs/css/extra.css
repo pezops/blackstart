@@ -2,3 +2,22 @@
 .mkdocs-hidden {
   display: none;
 }
+
+/* Prevent inline code tokens like `doesNotExist` from splitting across lines. */
+.md-typeset h2#operations ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(1) code,
+.md-typeset h2#operations ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(2) code {
+  white-space: nowrap !important;
+  /*word-break: normal !important;*/
+  /*overflow-wrap: normal !important;*/
+}
+
+/* Keep Helm Values key names in the first column on one line. */
+.md-typeset h2#helm-values ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(1) code {
+  white-space: nowrap !important;
+}
+
+/* Keep flags and env vars in the first two columns on one line. */
+.md-typeset h2#runtime-flags-and-environment-variables ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(1) code,
+.md-typeset h2#runtime-flags-and-environment-variables ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(2) code {
+  white-space: nowrap !important;
+}

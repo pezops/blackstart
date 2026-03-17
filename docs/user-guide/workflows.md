@@ -8,8 +8,8 @@ This approach is simple, powerful, and designed for modern cloud-native environm
 
 ## The Basics
 
-A **Workflow** is composed of a partially ordered set of **Operations**. Each Operation is a single
-step that uses a specific **Module** to manage a piece of infrastructure.
+A **Workflow** is composed of a partially ordered set of **Operations**. Each operation is a single
+unit of work (a single step) that uses a specific **Module** to manage a piece of infrastructure.
 
 Here is a simple example of a workflow that creates a CloudSQL user, configures the instance to be
 managed, and then grants the user permissions on a database within that instance.
@@ -85,24 +85,78 @@ For each operation in the graph, Blackstart follows an idempotent "check then se
     - If the check **passes**, the resource already exists in the desired state. The module resolves
       and provides the necessary output values for other operations to use, and Blackstart moves to
       the next operation.
-    - If the check **fails**, the resource does not exist or is not in the desired state.
+    - If the check returns **false with no error**, the resource does not exist or is not in the
+      desired state.
+    - If the check returns an **error**, the workflow run stops at that operation and will retry on
+      the next run.
 
-2.  **Set**: This step is **only** executed if the `Check` step fails. The module performs an action
-    to create or modify the resource to match the desired state. Once complete, it provides the
-    necessary output values.
+2.  **Set**: This step is **only** executed when `Check` returns `false` and no error. The module
+    performs an action to create or modify the resource to match the desired state. Once complete,
+    it provides the necessary output values.
 
 ## Operations
 
 Operations are the building blocks of a workflow. They define a single, discrete unit of work.
 
-| Field         | Type               | Description                                                                                                      |
-| ------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `id`          | `string`           | **Required.** A unique identifier for the operation within the workflow. This is used to establish dependencies. |
-| `module`      | `string`           | **Required.** The id of the module to use for this operation.                                                    |
-| `name`        | `string`           | A human-readable name for the operation.                                                                         |
-| `description` | `string`           | An optional, more detailed description of what the operation does.                                               |
-| `dependsOn`   | `[]string`         | A list of operation IDs that this operation explicitly depends on.                                               |
-| `inputs`      | `map[string]Input` | A map of key-value pairs passed as inputs to the module.                                                         |
+| Field          | Type               | Description                                                                                                      |
+| -------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `id`           | `string`           | **Required.** A unique identifier for the operation within the workflow. This is used to establish dependencies. |
+| `module`       | `string`           | **Required.** The id of the module to use for this operation.                                                    |
+| `name`         | `string`           | A human-readable name for the operation.                                                                         |
+| `description`  | `string`           | An optional, more detailed description of what the operation does.                                               |
+| `dependsOn`    | `[]string`         | A list of operation IDs that this operation explicitly depends on.                                               |
+| `inputs`       | `map[string]Input` | A map of key-value pairs passed as inputs to the module.                                                         |
+| `doesNotExist` | `bool`             | Optional. When `true`, the operation enforces that the target resource should not exist.                         |
+| `tainted`      | `bool`             | Optional/advanced. Forces reconciliation behavior for special cases. Typically not set by users.                 |
+
+### Operation Syntax
+
+Use this shape when authoring an operation in `spec.operations`.
+
+```yaml
+- id: unique_operation_id
+  module: module_id
+  name: Human readable name # optional
+  description: Longer description # optional
+  dependsOn: # optional
+    - another_operation_id
+  doesNotExist: false # optional
+  tainted: false # optional/advanced
+  inputs: # module-specific keys
+    input_key: input_value
+```
+
+Minimal operation:
+
+```yaml
+- id: create_app_user
+  module: google_cloudsql_user
+  inputs:
+    project: demo-j78sj4
+    instance: instance-j38sl4
+    user: app-svc-account
+    user_type: CLOUD_IAM_SERVICE_ACCOUNT
+```
+
+Operation with explicit dependencies and dynamic input:
+
+```yaml
+- id: grant_app_role
+  module: postgres_grant
+  dependsOn:
+    - create_app_user
+    - discover_db_connection
+  inputs:
+    connection:
+      fromDependency:
+        id: discover_db_connection
+        output: connection
+    role:
+      fromDependency:
+        id: create_app_user
+        output: user
+    permission: SELECT
+```
 
 ### Inputs and Outputs
 

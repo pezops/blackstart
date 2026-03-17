@@ -106,36 +106,46 @@ func NewTestingLogger() *slog.Logger {
 }
 
 func NewLogger(config *RuntimeConfig) *slog.Logger {
+	return newLoggerForWriter(config, nil)
+}
+
+func newLoggerForWriter(config *RuntimeConfig, overrideWriter io.Writer) *slog.Logger {
 	var err error
 	var logHandler slog.Handler
 	var logWriter io.Writer
 
 	if config == nil {
 		config = &RuntimeConfig{
-			LogFormat: "",
-			LogLevel:  "info",
+			LogFormat:     "",
+			LogLevel:      "info",
+			LogLevelKey:   "level",
+			LogMessageKey: "msg",
 		}
 	}
 
 	// log output writer
-	switch config.LogOutput {
-	case "", "-":
-		logWriter = os.Stdout
-	default:
-		// open file and set a writer
-		var file *os.File
-		file, err = os.OpenFile(config.LogOutput, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			log.Fatalf("failed to open log file: %v", err)
-		}
-		defer func(file *os.File) {
-			err = file.Close()
+	if overrideWriter != nil {
+		logWriter = overrideWriter
+	} else {
+		switch config.LogOutput {
+		case "", "-":
+			logWriter = os.Stdout
+		default:
+			// open file and set a writer
+			var file *os.File
+			file, err = os.OpenFile(config.LogOutput, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 			if err != nil {
-				log.Println("failed to close log file:", err)
+				log.Fatalf("failed to open log file: %v", err)
 			}
-		}(file)
+			defer func(file *os.File) {
+				err = file.Close()
+				if err != nil {
+					log.Println("failed to close log file:", err)
+				}
+			}(file)
 
-		logWriter = file
+			logWriter = file
+		}
 	}
 
 	// log level
@@ -148,7 +158,7 @@ func NewLogger(config *RuntimeConfig) *slog.Logger {
 	logOpts := &slog.HandlerOptions{
 		AddSource:   false,
 		Level:       ll,
-		ReplaceAttr: nil,
+		ReplaceAttr: logReplaceAttr(config),
 	}
 
 	// log logHandler
@@ -160,4 +170,27 @@ func NewLogger(config *RuntimeConfig) *slog.Logger {
 	}
 
 	return slog.New(logHandler)
+}
+
+func logReplaceAttr(config *RuntimeConfig) func(groups []string, a slog.Attr) slog.Attr {
+	if config == nil {
+		return nil
+	}
+	levelKey := strings.TrimSpace(config.LogLevelKey)
+	if levelKey == "" {
+		levelKey = "level"
+	}
+	messageKey := strings.TrimSpace(config.LogMessageKey)
+	if messageKey == "" {
+		messageKey = "msg"
+	}
+	return func(_ []string, a slog.Attr) slog.Attr {
+		switch a.Key {
+		case slog.LevelKey:
+			a.Key = levelKey
+		case slog.MessageKey:
+			a.Key = messageKey
+		}
+		return a
+	}
 }

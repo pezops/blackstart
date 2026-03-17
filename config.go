@@ -15,6 +15,8 @@ type RuntimeConfig struct {
 	LogOutput     string `long:"log-output" env:"BLACKSTART_LOG_OUTPUT" description:"Logging output file name" default:""`
 	LogFormat     string `long:"log-format" env:"BLACKSTART_LOG_FORMAT" description:"Logging format (json, text)" default:"text"`
 	LogLevel      string `long:"log-level" env:"BLACKSTART_LOG_LEVEL" description:"Logging level" default:"info"`
+	LogLevelKey   string `long:"log-level-key" env:"BLACKSTART_LOG_LEVEL_KEY" description:"JSON logging key name for level/severity" default:"level"`
+	LogMessageKey string `long:"log-message-key" env:"BLACKSTART_LOG_MESSAGE_KEY" description:"JSON logging key name for message/event" default:"msg"`
 	WorkflowFile  string `short:"f" long:"workflow-file" env:"BLACKSTART_WORKFLOW_FILE" description:"Path to the workflow file" required:"false"`
 	KubeNamespace string `short:"n" long:"k8s-namespace" env:"BLACKSTART_K8S_NAMESPACE" description:"Kubernetes namespace(s) to read the workflow from" default:""`
 }

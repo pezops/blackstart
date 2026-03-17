@@ -131,10 +131,11 @@ func runWorkflowsInK8s(ctx context.Context, kubeClient client.Client) (err error
 
 	var workflows []*blackstart.Workflow
 	namespaces := strings.Split(config.KubeNamespace, ",")
-	if len(namespaces) == 0 {
+	if strings.TrimSpace(config.KubeNamespace) == "" {
 		namespaces = []string{""}
 	}
 	for _, ns := range namespaces {
+		ns = strings.TrimSpace(ns)
 		var nsWorkflows []*blackstart.Workflow
 		nsWorkflows, err = loadWorkflowsFromK8s(ctx, kubeClient, ns)
 		if err != nil {
@@ -148,14 +149,16 @@ func runWorkflowsInK8s(ctx context.Context, kubeClient client.Client) (err error
 			} else {
 				logger.Warn("no workflows found")
 			}
-			err = nil
-			return
-
+			continue
 		}
 		workflows = append(workflows, nsWorkflows...)
 	}
+	if len(workflows) == 0 {
+		logger.Warn("no workflows found in configured namespaces")
+		return nil
+	}
 
-	var wfErrors []error
+	errCh := make(chan error, len(workflows))
 	var wg sync.WaitGroup
 	for _, kwf := range workflows {
 		wg.Add(1)
@@ -163,11 +166,17 @@ func runWorkflowsInK8s(ctx context.Context, kubeClient client.Client) (err error
 			defer wg.Done()
 			wErr := runWorkflowInK8s(ctx, kubeClient, kwf)
 			if wErr != nil {
-				wfErrors = append(wfErrors, wErr)
+				errCh <- wErr
 			}
 		}(kwf)
 	}
 	wg.Wait()
+	close(errCh)
+
+	var wfErrors []error
+	for wErr := range errCh {
+		wfErrors = append(wfErrors, wErr)
+	}
 	if len(wfErrors) > 0 {
 		err = fmt.Errorf("errors running workflows: %v", wfErrors)
 	}
@@ -203,7 +212,7 @@ func runWorkflowInK8s(ctx context.Context, c client.Client, wf *blackstart.Workf
 		OperationsCompleted: fmt.Sprintf("%d/%d", result.CompletedOperations, result.TotalOperations),
 		LastOperation:       lastOpStart,
 	}
-	err := updateWorkflowStatusInK8s(ctx, c, wf, status)
+	err := updateWorkflowStatusFunc(ctx, c, wf, status)
 	if err != nil {
 		logger.Error("error updating workflow status", "workflow", wf.Name, "error", err)
 	}

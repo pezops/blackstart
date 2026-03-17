@@ -76,13 +76,14 @@ func (o *Operation) execute(mctx ModuleContext, logger *slog.Logger) error {
 	logger.Info("operation check", "module", o.Module, "id", o.Id)
 	check, err = m.Check(mctx)
 	if err != nil {
-		logger.Debug(
-			"failed to check module",
+		logger.Warn(
+			"operation check failed",
 			"module", o.Module,
 			"id", o.Id,
 			"inputs", o.Inputs,
 			"error", err,
 		)
+		return err
 	}
 	if check {
 		logger.Info("operation check passed", "module", o.Module, "id", o.Id)

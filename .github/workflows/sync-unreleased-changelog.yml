@@ -1,0 +1,112 @@
+name: Sync Unreleased Changelog
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  sync_unreleased:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build unreleased notes from merged PRs
+        id: notes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const published = releases.filter((r) => !r.draft);
+            const latest = published.length > 0
+              ? published.sort((a, b) => new Date(b.published_at) - new Date(a.published_at))[0]
+              : null;
+            const since = latest?.published_at ? new Date(latest.published_at) : null;
+
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "closed",
+              base: "main",
+              sort: "updated",
+              direction: "desc",
+              per_page: 100,
+            });
+
+            const merged = pulls
+              .filter((pr) => pr.merged_at)
+              .filter((pr) => (since ? new Date(pr.merged_at) > since : true))
+              .sort((a, b) => new Date(b.merged_at) - new Date(a.merged_at));
+
+            const lines = merged.map((pr) => `- ${pr.title} (#${pr.number}) @${pr.user.login}`);
+            core.setOutput(
+              "body",
+              lines.length > 0 ? lines.join("\n") : "- No unreleased changes currently drafted."
+            );
+
+      - name: Sync Unreleased section in CHANGELOG.md
+        env:
+          RELEASE_BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          set -euo pipefail
+
+          CHANGELOG="CHANGELOG.md"
+          BODY_FILE="/tmp/release-body.md"
+          EXISTING_FILE="/tmp/changelog-existing.md"
+          NEW_FILE="/tmp/CHANGELOG.md"
+
+          printf "%s\n" "${RELEASE_BODY}" > "${BODY_FILE}"
+          if [ ! -s "${BODY_FILE}" ] || ! grep -q '[^[:space:]]' "${BODY_FILE}"; then
+            printf -- "- No unreleased changes currently drafted.\n" > "${BODY_FILE}"
+          fi
+
+          if [ -f "${CHANGELOG}" ]; then
+            awk '
+              NR == 1 && $0 ~ /^# Changelog/ { next }
+              /^## \[Unreleased\]/ { skip = 1; next }
+              skip && /^## \[/ { skip = 0 }
+              !skip { print }
+            ' "${CHANGELOG}" > "${EXISTING_FILE}"
+          else
+            : > "${EXISTING_FILE}"
+          fi
+
+          {
+            printf "# Changelog\n\n"
+            printf "## [Unreleased]\n\n"
+            cat "${BODY_FILE}"
+            printf "\n\n"
+            cat "${EXISTING_FILE}"
+          } > "${NEW_FILE}"
+
+          mv "${NEW_FILE}" "${CHANGELOG}"
+
+      - name: Commit changelog update
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "No CHANGELOG.md updates to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): sync unreleased notes [skip ci]"
+          git push origin HEAD:main

@@ -1,4 +1,4 @@
-<span class="mkdocs-hidden">&larr; [User Guide](README)</span>
+<span class="mkdocs-hidden">&larr; [User Guide](README.md)</span>
 
 # Deploy
 
@@ -14,18 +14,29 @@ To install Blackstart on Kubernetes, you can use the provided Helm chart. First,
 Helm repository:
 
 ```bash
-helm repo add blackstart pezops.github.io/blackstart
+helm repo add pezops https://pezops.github.io/charts
+helm repo update
 ```
 
 Then, install the chart:
 
 ```bash
-helm install blackstart blackstart/blackstart
+helm install blackstart pezops/blackstart --version <chart-version>
 ```
 
 This will deploy Blackstart in your Kubernetes cluster with default configurations. You can
 customize the installation by providing a `values.yaml` file or using command-line options to
 override specific settings.
+
+Install the CRD before creating any workflow resources:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/pezops/blackstart/<release-tag>/config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml
+```
+
+Replace `<release-tag>` with a release tag such as `v0.1.0`.
+
+For runtime flags, environment variables, and Helm values, see [Configuration](./configuration.md).
 
 ### Manifest
 
@@ -46,7 +57,7 @@ spec:
           serviceAccountName: blackstart
           containers:
             - name: blackstart
-              image: ghcr.io/pezops/blackstart:latest
+              image: ghcr.io/pezops/blackstart:<release-version>
 ```
 
 This manifest schedules Blackstart to run every hour. Make sure to create a service account with the

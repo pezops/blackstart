@@ -193,3 +193,44 @@ func TestLoadWorkflowsFromK8sSuite(t *testing.T) {
 		)
 	}
 }
+
+func TestRunInK8sMode_MultiNamespaceContinuesAfterEmptyNamespace(t *testing.T) {
+	scheme := runtime.NewScheme()
+	err := v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	workflow := &v1alpha1.Workflow{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "blackstart.pezops.github.io/v1alpha1",
+			Kind:       "Workflow",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "team-b-workflow",
+			Namespace: "team-b",
+		},
+		Spec: v1alpha1.WorkflowSpec{
+			Operations: []v1alpha1.Operation{},
+		},
+	}
+
+	fakeClient := newFakeClientWithStatus(scheme, workflow)
+	statusClient, ok := fakeClient.(*fakeClientWithStatus)
+	require.True(t, ok, "expected fake client with status support")
+
+	restore := patchEnv(t, blackstart.K8sNamespaceEnv, "team-a,team-b")
+	defer restore()
+
+	config, err := blackstart.ReadConfig()
+	require.NoError(t, err, "ReadConfig() should not return an error")
+
+	ctx := context.Background()
+	logger := blackstart.NewLogger(config)
+	ctx = context.WithValue(ctx, blackstart.LoggerKey, logger)
+	ctx = context.WithValue(ctx, blackstart.ConfigKey, config)
+
+	err = run(ctx, fakeClient)
+	require.NoError(t, err, "run() should continue to the second namespace")
+
+	_, found := statusClient.statusStore.Load("team-b-workflow")
+	require.True(t, found, "workflow in second namespace should have been processed")
+}
