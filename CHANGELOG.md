@@ -1,11 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-### ⚙️ Miscellaneous Tasks
-
-- Add specific git ref for cosign action mising floating tag (#28) by @mbrancato
-
 ## [0.0.2] - 2026-03-18
 
 ### 🐛 Bug Fixes
@@ -24,6 +18,7 @@
 - Update release/changelog workflows and action versions (#24) by @mbrancato
 - Move helm chart back into repo pages (#25) by @mbrancato
 - Fix args for git-cliff action (#27) by @mbrancato
+- Add specific git ref for cosign action mising floating tag (#28) by @mbrancato
 
 ### New Contributors
 
