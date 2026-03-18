@@ -18,14 +18,14 @@ func TestGrant(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setup       func()
+		setup       func(t *testing.T)
 		checkResult bool
 		grant       grantModule
 		inputs      map[string]blackstart.Input
 	}{
 		{
 			name: "schema_create_grant",
-			setup: func() {
+			setup: func(t *testing.T) {
 				_, err = db.Exec("CREATE ROLE blackstart_0")
 				if err != nil {
 					t.Fatalf("failed to create Role: %v", err)
@@ -43,7 +43,7 @@ func TestGrant(t *testing.T) {
 		},
 		{
 			name: "instance_pg_monitor_grant",
-			setup: func() {
+			setup: func(t *testing.T) {
 				_, err = db.Exec("CREATE ROLE blackstart_1")
 				if err != nil {
 					t.Fatalf("failed to create Role: %v", err)
@@ -65,11 +65,11 @@ func TestGrant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
-				var testErr error
+					var testErr error
 
-				if tt.setup != nil {
-					tt.setup()
-				}
+					if tt.setup != nil {
+						tt.setup(t)
+					}
 
 				mctx := blackstart.InputsToContext(ctx, tt.inputs)
 

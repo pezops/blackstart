@@ -19,7 +19,7 @@ func TestRole(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setup       func()
+		setup       func(t *testing.T)
 		checkResult bool
 		role        roleModule
 	}{
@@ -38,7 +38,7 @@ func TestRole(t *testing.T) {
 		},
 		{
 			name: "fix_incorrect_role",
-			setup: func() {
+			setup: func(t *testing.T) {
 				_, err := db.Exec("CREATE ROLE blackstart1 WITH NOCREATEDB LOGIN;")
 				require.NoError(t, err)
 			},
@@ -56,7 +56,7 @@ func TestRole(t *testing.T) {
 		},
 		{
 			name: "role_already_exists",
-			setup: func() {
+			setup: func(t *testing.T) {
 				_, err := db.Exec("CREATE ROLE blackstart2 WITH REPLICATION LOGIN;")
 				require.NoError(t, err)
 			},
@@ -76,7 +76,7 @@ func TestRole(t *testing.T) {
 		},
 		{
 			name: "delete_role",
-			setup: func() {
+			setup: func(t *testing.T) {
 				_, err := db.Exec("CREATE ROLE blackstart3;")
 				require.NoError(t, err)
 			},
@@ -113,11 +113,11 @@ func TestRole(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
-				var testErr error
+					var testErr error
 
-				if tt.setup != nil {
-					tt.setup()
-				}
+					if tt.setup != nil {
+						tt.setup(t)
+					}
 
 				// create inputs and known at runtime
 				mctx := blackstart.InputsToContext(ctx, tt.role.op.Inputs)
