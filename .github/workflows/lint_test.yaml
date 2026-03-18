@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout PR code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -49,7 +49,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
 
   test:
     name: Test
@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout PR code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -69,7 +69,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-report
@@ -87,7 +87,7 @@ jobs:
       contents: read
     steps:
       - name: Download coverage artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: coverage-report
 
@@ -104,10 +104,10 @@ jobs:
     timeout-minutes: 2
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
           cache: "pip"

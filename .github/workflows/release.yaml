@@ -21,17 +21,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: Setup ko
-        uses: ko-build/setup-ko@v0.8
+        uses: ko-build/setup-ko@v0.9
 
       - name: Install crane
         run: |
@@ -73,13 +73,13 @@ jobs:
           echo "Image digest: ${DIGEST}"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.10.1
+        uses: sigstore/cosign-installer@v4
 
       - name: Sign image with Cosign (keyless via GitHub OIDC)
         run: cosign sign --yes "${{ steps.digest.outputs.full_ref }}"
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.REPO_NAME }}
           subject-digest: ${{ steps.digest.outputs.digest }}
@@ -98,7 +98,7 @@ jobs:
       is_latest: ${{ steps.check.outputs.is_latest }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

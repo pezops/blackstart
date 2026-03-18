@@ -2,6 +2,16 @@ name: Release Drafter
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v1.2.1)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark draft as prerelease"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -15,5 +25,71 @@ jobs:
   update_release_draft:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate tag format
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid tag format: ${TAG}"
+            echo "Use semantic versioning with v prefix, e.g. v1.2.1"
+            exit 1
+          fi
+
+      - name: Guard against published release for tag
+        uses: actions/github-script@v8
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.TAG;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const published = releases.find((r) => r.tag_name === tag && !r.draft);
+            if (published) {
+              core.setFailed(`A published release already exists for tag ${tag}.`);
+            }
+
+      - name: Generate changelog with git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --config cliff.toml --tag ${{ github.event.inputs.tag }} --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit changelog update
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "No CHANGELOG.md updates to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): prepare ${{ github.event.inputs.tag }} [skip ci]"
+          git push origin HEAD:main
+
       - name: Update draft release
         uses: release-drafter/release-drafter@v7
+        with:
+          name: ${{ github.event.inputs.tag }}
+          tag: ${{ github.event.inputs.tag }}
+          version: ${{ github.event.inputs.tag }}
+          commitish: main
+          prerelease: ${{ github.event.inputs.prerelease }}
+          publish: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
