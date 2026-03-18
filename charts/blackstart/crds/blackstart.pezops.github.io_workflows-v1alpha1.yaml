@@ -1,0 +1,159 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: workflows.blackstart.pezops.github.io
+spec:
+  group: blackstart.pezops.github.io
+  names:
+    kind: Workflow
+    listKind: WorkflowList
+    plural: workflows
+    shortNames:
+    - bswf
+    singular: workflow
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.successful
+      name: Successful
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.operationsCompleted
+      name: Operations
+      type: string
+    - jsonPath: .status.lastRan
+      name: Last Ran
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Workflow defines all the settings for a Blackstart workflow including its operations and their
+          dependencies.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WorkflowSpec models the spec section of the Workflow, the
+              actual values used by Blackstart.
+            properties:
+              description:
+                description: Optional human description
+                type: string
+              operations:
+                description: A partially ordered set of operations to be executed.
+                items:
+                  description: Operation models a single Blackstart operation in the
+                    Workflow.
+                  properties:
+                    dependsOn:
+                      description: |-
+                        DependsOn is a list of operation IDs that this operation depends on and must be completed
+                        before this operation is run.
+                      items:
+                        type: string
+                      type: array
+                    description:
+                      description: Long-form description of the operation.
+                      type: string
+                    doesNotExist:
+                      description: |-
+                        DoesNotExist is a special parameter that can be used to indicate that the resource should
+                        not exist. This is useful for resources that are changed from a previous state and now
+                        should be deleted if they still exist.
+                      type: boolean
+                    id:
+                      description: Identifier for the Operation, used by other operations
+                        to reference for dependencies.
+                      type: string
+                    inputs:
+                      description: |-
+                        Inputs may be a key:value object mapping a set of static, scalar values to a named input
+                        for the selected module. Instead of a scalar value, it may also be a well-known object with
+                        the `fromDependency` property. The `fromDependency` must contain both an `id` and `output`
+                        property to indicate which operation and output value to use as a dynamic input value that
+                        is filled at runtime.
+                      x-kubernetes-preserve-unknown-fields: true
+                    module:
+                      description: |-
+                        Module to be instantiated for the Operation. This must match the identifier of a registered
+                        module.
+                      type: string
+                    name:
+                      description: Short name for the operation.
+                      type: string
+                    tainted:
+                      description: |-
+                        Tainted is a special parameter that can be used to indicate that the resource is tainted and
+                        should be replaced. This is useful for resources that always must be updated so that
+                        attributes / output values are known by blackstart. This should not be configured by users,
+                        and should only be used explicitly by modules.
+                      type: boolean
+                  required:
+                  - id
+                  - module
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - operations
+            type: object
+          status:
+            description: WorkflowStatus contains runtime status and result information
+              about the Workflow.
+            properties:
+              lastOperation:
+                description: LastOperation is the identifier of the last operation
+                  that was executed in the last run.
+                type: string
+              lastRan:
+                description: LastRan is the time the Workflow was last run, if ever.
+                format: date-time
+                type: string
+              operationsCompleted:
+                description: |-
+                  OperationsCompleted is the number of operations that were completed in the last run. This
+                  is stored in a fraction format where the denominator is the total number of operations in
+                  the Workflow.
+                type: string
+              phase:
+                description: Phase is a high-level state of the workflow that the
+                  last run ended in.
+                type: string
+              result:
+                description: |-
+                  Result contains any result information from the last run, including error messages if
+                  applicable.
+                type: string
+              successful:
+                description: Successful indicates whether the last run was successful.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
