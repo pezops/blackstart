@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove crane release workflow tool as a dependency (#29) by @mbrancato
+
 ## [0.0.2] - 2026-03-18
 
 ### 🐛 Bug Fixes
