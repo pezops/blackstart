@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	postgrestest "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -29,7 +30,13 @@ func createTestContainer(ctx context.Context) (*postgrestest.PostgresContainer, 
 
 	waitFor := func() testcontainers.CustomizeRequestOption {
 		return func(req *testcontainers.GenericContainerRequest) error {
-			req.WaitingFor = wait.ForListeningPort("5432/tcp").WithStartupTimeout(60 * time.Second)
+			req.WaitingFor = wait.ForSQL(
+				"5432/tcp",
+				"postgres",
+				func(host string, port nat.Port) string {
+					return fmt.Sprintf("postgres://role:password@%s:%s/test?sslmode=disable", host, port.Port())
+				},
+			).WithStartupTimeout(90 * time.Second)
 			return nil
 		}
 	}
