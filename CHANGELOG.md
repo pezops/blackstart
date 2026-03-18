@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.0.2] - 2026-03-18
 
 ### 🐛 Bug Fixes
 
@@ -18,6 +18,10 @@
 - Update release/changelog workflows and action versions (#24) by @mbrancato
 - Move helm chart back into repo pages (#25) by @mbrancato
 - Fix args for git-cliff action (#27) by @mbrancato
+
+### New Contributors
+
+* @github-actions[bot] made their first contribution
 
 ## [0.0.1] - 2025-10-20
 
