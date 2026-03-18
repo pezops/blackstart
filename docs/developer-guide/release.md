@@ -18,3 +18,5 @@ Use this procedure when publishing a release.
 
 - Use semantic tags with a `v` prefix (for example `v0.4.0`).
 - Release notes on the docs site link directly to: `https://github.com/pezops/blackstart/releases`.
+- Helm chart packages are uploaded as GitHub release assets. The chart `index.yaml` is generated on
+  Pages from published release assets; it is not stored in the repository.

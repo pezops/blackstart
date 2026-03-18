@@ -90,6 +90,46 @@ jobs:
           echo "Published:  ${{ steps.ko.outputs.image_ref }}:${{ steps.version.outputs.tag }}"
           echo "Digest:     ${{ steps.digest.outputs.digest }}"
 
+  publish-helm-chart:
+    name: Publish Helm Chart Asset
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Prepare chart version
+        id: chart-version
+        run: |
+          CHART_VERSION="${RELEASE_VERSION#v}"
+          echo "version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Chart version: ${CHART_VERSION}"
+
+      - name: Package chart
+        run: |
+          mkdir -p dist/charts
+          helm package charts/blackstart \
+            --version "${{ steps.chart-version.outputs.version }}" \
+            --app-version "${{ steps.chart-version.outputs.version }}" \
+            --destination dist/charts
+          mv \
+            "dist/charts/blackstart-${{ steps.chart-version.outputs.version }}.tgz" \
+            "dist/charts/blackstart-chart-${{ steps.chart-version.outputs.version }}.tgz"
+
+      - name: Upload chart asset to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${RELEASE_VERSION}" \
+            "dist/charts/blackstart-chart-${{ steps.chart-version.outputs.version }}.tgz" \
+            --clobber
+
   check-if-latest:
     name: Check if Latest Release
     if: github.event.release.prerelease == false
