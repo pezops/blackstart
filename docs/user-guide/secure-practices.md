@@ -39,8 +39,8 @@ to manage resources than using static credentials or requiring manual resource s
 Modules are given a lot of flexibility in how they are implemented. However, there are a few
 patterns that are considered "less secure" and will not be allowed in the Blackstart codebase. This
 includes patterns such as configuring static usernames and passwords. Blackstart makes it easy to
-avoid these types of patterns, so avoiding them altogether helps remove the accumulation of this
-security tech debt.
+avoid these types of patterns, so avoiding them altogether helps remove the accumulation of security
+tech debt.
 
 ## Local Network Access
 

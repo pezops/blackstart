@@ -1,6 +1,6 @@
 <span class="mkdocs-hidden">&larr; [Developer Guide](README.md)</span>
 
-# Exported Types
+# Core Types
 
 ## Operation
 
@@ -40,8 +40,22 @@ The `ModuleContext` is a runtime context passed to `Check` and `Set` methods. Mo
 context to read inputs, write outputs in the workflow. Additionally, the `ModuleContext` can be used
 as a `context.Context` to propagate cancellation signals to the module and its dependencies.
 
+In practice, `ModuleContext` is the module's handle to the current operation execution:
+
+- Read resolved inputs with `Input(key)`. This includes static inputs and dependency-provided inputs
+  that are only available at runtime.
+- Write operation outputs with `Output(key, value)` so downstream operations can consume them via
+  `fromDependency`.
+- Inspect operation mode flags with `DoesNotExist()` and `Tainted()` to adjust behavior for delete
+  and force-reconcile scenarios.
+- Honor cancellation and deadlines via `Done()`, `Err()`, and `Deadline()` when making API calls.
+
+Modules should treat `ModuleContext` as the single runtime contract for operation state and data
+flow. Avoid module-global mutable state and prefer context-aware clients so retries and periodic
+runs remain safe and predictable.
+
 <!-- prettier-ignore-start -->
-??? abstract "Input"
+??? abstract "ModuleContext"
     ```go
     --8<-- "module.go:ModuleContext"
     ```

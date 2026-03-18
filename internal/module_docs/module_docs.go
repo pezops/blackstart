@@ -83,6 +83,9 @@ func generateDocs() {
 	for _, factory := range modules {
 		module := factory()
 		info := module.Info()
+		if shouldExcludeModule(info.Id) {
+			continue
+		}
 
 		// Create a path from the module name
 		parts := strings.Split(info.Id, "_")
@@ -180,20 +183,23 @@ func generateTOCs(baseDir string, files map[string]blackstart.ModuleInfo, pathNa
 		if d == baseDir {
 			continue
 		}
-		err := createReadme(d, baseDir, files, pathNames)
+		err := createReadme(d, baseDir, files, pathNames, allDirs)
 		if err != nil {
 			log.Fatalf("failed to create readme for %s: %v", d, err)
 		}
 	}
 
 	// Create README for base directory
-	err := createReadme(baseDir, baseDir, files, pathNames)
+	err := createReadme(baseDir, baseDir, files, pathNames, allDirs)
 	if err != nil {
 		log.Fatalf("failed to create readme for %s: %v", baseDir, err)
 	}
 }
 
-func createReadme(dir, baseDir string, allFiles map[string]blackstart.ModuleInfo, pathNames map[string]string) error {
+func createReadme(
+	dir, baseDir string, allFiles map[string]blackstart.ModuleInfo, pathNames map[string]string,
+	allDirs map[string]bool,
+) error {
 	readmePath := filepath.Join(dir, "README.md")
 	relDir, err := filepath.Rel(baseDir, dir)
 	if err != nil {
@@ -211,7 +217,10 @@ func createReadme(dir, baseDir string, allFiles map[string]blackstart.ModuleInfo
 	}
 
 	var content bytes.Buffer
-	content.WriteString(fmt.Sprintf("# %s\n\n", title))
+	_, err = fmt.Fprintf(&content, "# %s\n\n", title)
+	if err != nil {
+		return err
+	}
 
 	// Direct module files in the current directory
 	var directFiles []string
@@ -249,8 +258,13 @@ func createReadme(dir, baseDir string, allFiles map[string]blackstart.ModuleInfo
 
 	if len(subDirs) > 0 {
 		for _, subDir := range subDirs {
+			subDirPath := filepath.Join(dir, subDir)
+			// Only include directories that are part of this generation run.
+			if !allDirs[subDirPath] {
+				continue
+			}
 			// Check if a README.md exists in the subdirectory
-			if _, err = os.Stat(filepath.Join(dir, subDir, "README.md")); err == nil {
+			if _, err = os.Stat(filepath.Join(subDirPath, "README.md")); err == nil {
 				caser := cases.Title(language.English)
 				title = caser.String(subDir)
 				if friendlyName, ok := pathNames[strings.ToLower(subDir)]; ok {
@@ -263,4 +277,8 @@ func createReadme(dir, baseDir string, allFiles map[string]blackstart.ModuleInfo
 	}
 
 	return os.WriteFile(readmePath, content.Bytes(), 0644)
+}
+
+func shouldExcludeModule(moduleID string) bool {
+	return strings.HasPrefix(moduleID, "mock_")
 }

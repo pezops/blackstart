@@ -1,9 +1,13 @@
 # Introduction
 
-Blackstart is a tool that helps automate the boring parts of configuring infrastructure. After
-infrastructure is created, there can still be work needed before applications will run correctly.
-Assigning database grants, creating per-deployment resources, and configuring service backends are
-all examples of tasks where Blackstart can help.
+Blackstart helps automate the boring and annoying parts of bootstrapping and configuring
+infrastructure. It helps teams achieve — and keep — a secure, desired state without worrying about
+sensitive state files or manual toil. To achieve this, Blackstart uses a partially ordered set of
+operations to produce and run a workflow for bootstrapping and configuring cloud infrastructure and
+application deployments after the initial compute, network, and data infrastructure is deployed. It
+is designed to be idempotent and does not store a persistent state, avoiding the concern of storing
+sensitive data in state files. It can be run on a periodic basis to ensure that the system is kept
+in the desired state.
 
 <div class="mkdocs-hidden">
 <ul>
@@ -47,7 +51,7 @@ all examples of tasks where Blackstart can help.
 
     ---
 
-    If a step is not ready and the workflow fails, it's ok. The workflow will make progress when it runs again.
+    If an operation is not ready and the workflow fails, it's ok. The workflow will make progress when it runs again.
 
     [:octicons-arrow-right-24: Eventual consistency](user-guide/eventual-consistency.md)
 

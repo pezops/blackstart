@@ -1,45 +1,38 @@
 # Developer Guide
 
-In order to provide extensibility, Blackstart uses a module system. Modules provide a framework for
-developers to add support for new resources. This guide will walk through the concepts and
-requirements for modules.
+Blackstart is extended through modules. This guide is for developers implementing new modules or
+maintaining existing ones.
 
-<span class="mkdocs-hidden">
-Table of Contents
-</span>
+## In This Guide
 
-## Operation
+- [Modules](./modules.md): implementation contract and behavior expectations for `Validate`,
+  `Check`, and `Set`.
+- [Core Types](./types.md): runtime/configuration types used by module implementations.
+- [Building](./building.md): build, generation, lint, test, and docs workflows.
+- [Release Process](./release.md): drafting and publishing releases.
 
-The `Operation` struct is a configuration for a module to implement and is a single step the overall
-workflow. Each operation carries metadata about the module it uses, the inputs it requires, and its
-dependencies.
+## Module Authoring Guidance
 
-<!-- prettier-ignore-start -->
-??? abstract "Operation"
-    ```go
-    --8<-- "operation.go:Operation"
-    ```
-<!-- prettier-ignore-end -->
+If you are adding a new module, this is the minimum path to a production-ready implementation.
 
-## Input
+### Before You Code
 
-All inputs are passed to module implementations as a `Input` type. There are several methods that
-provide scalar values of the input. The `Auto` method attempts to auto-detect a scalar value from
-the input. For complex types, the `Any` method returns an `interface{}` that can be type-asserted to
-the desired type. The module must implement the assertion and type validation when using `Any` to
-retrieve the input.
+- Define module scope clearly: one module should manage one coherent resource concern.
+- Decide authoritative behavior up front: what your module manages vs intentionally leaves alone.
+- Design inputs/outputs first (`Info()`), then implement runtime behavior.
 
-When validating inputs, modules must check if the input is static using the `IsStatic` method. Only
-static values are able to be checked for compatability with the module in the `Validate` method.
-Values that are not static are only available at runtime.
+### Implementation Checklist
 
-<!-- prettier-ignore-start -->
-??? abstract "Input"
-    ```go
-    --8<-- "module.go:Input"
-    ```
-<!-- prettier-ignore-end -->
+1. Create a package under `modules/<domain>/...`.
+2. Implement `Info`, `Validate`, `Check`, and `Set`.
+3. Register the module in `init()` using `RegisterModule("<module_id>", factory)`.
+4. Import the package in `internal/all_modules/all_modules.go` for side-effect registration.
+5. Add tests for validation, check/set behavior, idempotency, and outputs.
+6. Run `make docs` to regenerate module docs.
+7. Run `make build` before opening a PR.
 
-## ModuleContext
+### Runtime Expectations
 
-The `ModuleContext` is a runtime context passed to `Check` and `Set` methods.
+- Keep `Check` read-only. If state cannot be determined reliably, return an error.
+- Keep `Set` idempotent so repeated runs converge safely.
+- On successful operations, populate any outputs that other operations may reference.

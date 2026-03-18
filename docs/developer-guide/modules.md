@@ -56,19 +56,35 @@ Check(ctx ModuleContext) (bool, error)
 
 The `Check` method is called to determine if the operation needs to be run. This method must check
 the current state of the system and return `true` if the system is in the desired state. If the
-system is not in the desired state, the method must return `false`.
+system is not in the desired state, the method must return `false` and no error.
+
+If `Check` returns an error, Blackstart treats that operation as failed for the current workflow run
+and does not call `Set` for that operation in that run.
 
 If the desired state is met, then the `Check` method must also set all outputs in the provided
 [`ModuleContext`](types.md#modulecontext) that are expected to be returned by the module.
 
 <!-- prettier-ignore-start -->
 ???+ warning "Check May Affect Idempotency"
-    The `Check` method may need to inspect if an error encountered is a transient error or a permanent error. In other 
-    words, there may be errors that are safe to encounter during the `Check` method that would be resolved when running 
-    `Set`. If `Check` returns false with a transient error, there can be a situation where idempotency of the target 
-    resource is broken. Be careful when implementing the `Check` method to ensure that the method is idempotent.
+    The `Check` method should answer one question: *is the resource already in the desired state?*
+    Problems happen when `Check` treats temporary read failures as "not in desired state" and drives
+    an unnecessary `Set`.
 
-    Additionally, this pattern is still under review and may change in the future.
+    Guidance:
+
+    - If the target state cannot be determined due to a transient read issue (timeout, rate limit,
+      temporary API outage), return an **error** from `Check` instead of `false, nil`.
+    - Return `false, nil` only when you have positive evidence that the current state differs from
+      the desired state.
+    - Keep `Check` side-effect free. It should observe state and set outputs, not mutate resources.
+
+    Why this matters:
+
+    - Returning `false, nil` on a temporary read failure can trigger `Set` even when the resource is
+      already correct.
+    - That can cause avoidable writes, duplicate actions, and non-idempotent behavior.
+
+    This pattern is still under review and may evolve.
 <!-- prettier-ignore-end -->
 
 ## Set
