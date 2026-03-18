@@ -1,0 +1,46 @@
+[changelog]
+header = """
+# Changelog
+"""
+
+body = """
+{%- if version %}
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}\n
+{%- else %}
+    ## [Unreleased]\n
+{%- endif -%}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+    {%- set pr_commits = commits | filter(attribute="remote.pr_number") -%}
+    {%- if pr_commits | length > 0 %}
+
+    ### {{ group | upper_first | striptags | trim }}
+    {% for commit in pr_commits %}
+        - {{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+            {% if commit.remote.username %} by @{{ commit.remote.username }}{%- endif -%}
+    {%- endfor -%}
+    {%- endif -%}
+{% endfor -%}
+
+{% if github.contributors | filter(attribute="is_first_time", value=true) | length != 0 %}
+
+    ### New Contributors
+{% endif -%}
+
+{% for contributor in github.contributors | filter(attribute="is_first_time", value=true) -%}
+  {%- set prs = commits
+      | filter(attribute="remote.username", value=contributor.username)
+      | filter(attribute="remote.pr_number")
+      | sort(attribute="remote.pr_number") -%}
+  {%- set first_pr = prs | first %}
+  * @{{ contributor.username }} made their first contribution
+    {%- if first_pr %} in (#{{ first_pr.remote.pr_number }})
+    {%- endif %}
+{%- endfor %}\n
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
