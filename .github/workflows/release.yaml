@@ -33,12 +33,6 @@ jobs:
       - name: Setup ko
         uses: ko-build/setup-ko@v0.9
 
-      - name: Install crane
-        run: |
-          # Install crane for digest resolution
-          VERSION=$(curl -s "https://api.github.com/repos/google/go-containerregistry/releases/latest" | jq -r '.tag_name')
-          go install github.com/google/go-containerregistry/cmd/crane@${VERSION}
-
       - name: Prepare version tag
         id: version
         run: |
@@ -65,11 +59,15 @@ jobs:
       - name: Resolve image digest
         id: digest
         run: |
-          # Resolve the manifest-list digest for signing/attestation
-          # IMAGE_REF already contains the full reference with tag
-          DIGEST=$(crane digest "${{ steps.ko.outputs.image_ref }}")
+          # ko build returns an image reference that includes the digest.
+          IMAGE_REF="${{ steps.ko.outputs.image_ref }}"
+          if [[ "${IMAGE_REF}" != *@sha256:* ]]; then
+            echo "ko image reference did not include a digest: ${IMAGE_REF}"
+            exit 1
+          fi
+          DIGEST="${IMAGE_REF##*@}"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "full_ref=${{ env.REGISTRY }}/${{ env.REPO_NAME }}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "full_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
           echo "Image digest: ${DIGEST}"
 
       - name: Install Cosign
