@@ -221,12 +221,15 @@ func (s *secretModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	}
 
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
 		return false, err
 	}
 
 	// Get the Secret
 	if sec != nil {
-		// Check if type matches desired state
+		// Check if the type matches the desired state
 		var typeInput blackstart.Input
 		typeInput, err = ctx.Input(inputType)
 		if err != nil {
@@ -244,7 +247,7 @@ func (s *secretModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 			}
 		}
 
-		// Check if immutable field matches desired state (only if immutable input is provided)
+		// Check if the immutable field matches the desired state (only if immutable input is provided)
 		var immutableInput blackstart.Input
 		immutableInput, err = ctx.Input(inputImmutable)
 		if err != nil {

@@ -154,7 +154,6 @@ func TestConfigMapModule_Check(t *testing.T) {
 			configMapName:  "missing",
 			namespace:      "test-namespace",
 			expectedResult: false,
-			expectError:    true,
 		},
 		{
 			name:           "does not exist missing configmap",

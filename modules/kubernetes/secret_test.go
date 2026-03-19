@@ -178,7 +178,6 @@ func TestSecretModule_Check(t *testing.T) {
 			namespace:      "test-namespace",
 			secretType:     string(corev1.SecretTypeOpaque),
 			expectedResult: false,
-			expectError:    true,
 		},
 		{
 			name:           "does not exist missing secret",

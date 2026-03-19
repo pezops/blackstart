@@ -106,6 +106,15 @@ func TestSecretValueModule_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name: "missing update policy defaults to overwrite",
+			inputs: map[string]blackstart.Input{
+				inputSecret: blackstart.NewInputFromValue(sec),
+				inputKey:    blackstart.NewInputFromValue("test-key"),
+				inputValue:  blackstart.NewInputFromValue("test-value"),
+			},
+			expectError: false,
+		},
+		{
 			name: "invalid update policy",
 			inputs: map[string]blackstart.Input{
 				inputSecret:       blackstart.NewInputFromValue(sec),
@@ -199,6 +208,15 @@ func TestSecretValueModule_Check(t *testing.T) {
 			key:            "existing-key",
 			value:          "existing-value",
 			updatePolicy:   updatePolicyOverwrite,
+			expectedResult: true,
+		},
+		{
+			name:           "existing secret existing key correct value - empty policy defaults to overwrite",
+			secretName:     "test-secret",
+			namespace:      "test-namespace",
+			key:            "existing-key",
+			value:          "existing-value",
+			updatePolicy:   "",
 			expectedResult: true,
 		},
 		// Preserve policy tests
