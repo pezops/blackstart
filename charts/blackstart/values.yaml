@@ -1,6 +1,7 @@
 serviceAccount:
   create: true
   name: "blackstart"
+  annotations: {}
 
 image:
   registry: "ghcr.io"

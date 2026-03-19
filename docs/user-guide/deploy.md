@@ -31,7 +31,38 @@ Kubernetes cluster with default configurations. You can customize the installati
 By default, the chart deploys a controller Deployment (`controller.enabled=true`) and disables the
 CronJob mode (`cronJob.enabled=false`).
 
-Install the CRD before creating any workflow resources:
+#### GKE Workload Identity
+
+You can annotate the chart-managed Kubernetes service account to use a Google service account.
+
+Example `values.yaml`:
+
+```yaml
+serviceAccount:
+  create: true
+  name: blackstart
+  annotations:
+    iam.gke.io/gcp-service-account: <service-account-id>@<project-id>.iam.gserviceaccount.com
+```
+
+Before installing, follow the Google Cloud guide to grant the Kubernetes service account permission
+to impersonate the Google service account:
+https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity
+
+Then install or upgrade the chart with your values file:
+
+```bash
+helm upgrade --install blackstart blackstart/blackstart \
+  --namespace blackstart \
+  --create-namespace \
+  -f values.yaml
+```
+
+### CRD Installation
+
+When installing with Helm, the chart installs the `Workflow` CRD automatically.
+
+If you are installing resources manually, install the CRD before creating any workflow resources:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/pezops/blackstart/<release-tag>/config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml

@@ -37,6 +37,7 @@ The chart supports these primary values:
 | ------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | <code>serviceAccount.<wbr>create</code>                 | `true`                             | Create a dedicated service account for the workload.                                                            |
 | <code>serviceAccount.<wbr>name</code>                   | `blackstart`                       | Service account name used by controller and CronJob modes.                                                      |
+| <code>serviceAccount.<wbr>annotations</code>            | `{}`                               | Optional annotations applied to the service account (for example GKE Workload Identity).                        |
 | <code>image.<wbr>registry</code>                        | `ghcr.io`                          | Container image registry host.                                                                                  |
 | <code>image.<wbr>repository</code>                      | `pezops/blackstart`                | Container image repository path.                                                                                |
 | <code>image.<wbr>tag</code>                             | Chart `appVersion`                 | Container image tag override. Empty uses chart `appVersion`.                                                    |
@@ -57,7 +58,10 @@ The chart supports these primary values:
 
 ## CRD Installation
 
-Install or upgrade the `Workflow` CRD before applying workflow resources:
+When installing with Helm, the chart installs the `Workflow` CRD automatically.
+
+If you install or update resources manually, install or upgrade the `Workflow` CRD before applying
+workflow resources:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/pezops/blackstart/<release-tag>/config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml
