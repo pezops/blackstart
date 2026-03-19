@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 🚀 Features
+
+- Add kubernetes controller runtime implementation (#31) by @mbrancato
+
 ### 🐛 Bug Fixes
 
 - Fix kubernetes configmap defaults, correct missing resource detection (#30) by @mbrancato
