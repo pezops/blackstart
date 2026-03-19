@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🚀 Features
+
+- Add support for custom service account annotations (#34) by @mbrancato
+
 ## [0.1.0] - 2026-03-19
 
 ### 🚀 Features
