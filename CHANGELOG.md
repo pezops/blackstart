@@ -1,11 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-### 📚 Documentation
-
-- Minor docs updates for helm and before release (#33) by @mbrancato
-
 ## [0.1.0] - 2026-03-19
 
 ### 🚀 Features
@@ -25,6 +19,7 @@
 ### 📚 Documentation
 
 - Improve documentation, add draft workflow and changelog management (#22) by @mbrancato
+- Minor docs updates for helm and before release (#33) by @mbrancato
 
 ### ⚙️ Miscellaneous Tasks
 
