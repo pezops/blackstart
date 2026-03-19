@@ -6,9 +6,9 @@ To get started with Blackstart on Kubernetes using the Helm chart, add the PezOp
 and install the Blackstart chart:
 
 ```shell
-helm repo add pezops https://pezops.github.io/blackstart/charts
+helm repo add blackstart https://pezops.github.io/blackstart/charts
 helm repo update
-helm install blackstart pezops/blackstart
+helm install blackstart blackstart/blackstart --namespace blackstart --create-namespace
 ```
 
 Install the `Workflow` CRD before creating any workflow resources:

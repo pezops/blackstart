@@ -2,14 +2,14 @@
 
 [![Lint and Test](https://github.com/pezops/blackstart/actions/workflows/lint_test.yaml/badge.svg)](https://github.com/pezops/blackstart/actions/workflows/lint_test.yaml)
 
-Blackstart is a tool that helps automate the boring parts of bootstrapping and configuring
-infrastructure. It helps teams achieve — and keep — a secure, desired state without worrying about
-sensitive state files or manual toil. To achieve this, Blackstart uses a partially ordered set of
-operations to produce and run a workflow for bootstrapping and configuring cloud infrastructure and
-application deployments after the initial compute, network, and data infrastructure is deployed. It
-is designed to be idempotent and does not store a persistent state, avoiding the concern of storing
-sensitive data in state files. It can be run on a periodic basis to ensure that the system is kept
-in the desired state.
+Blackstart helps automate the boring parts of bootstrapping and configuring infrastructure. It helps
+teams achieve — and keep — a secure, desired state without worrying about sensitive state files or
+manual toil. To achieve this, Blackstart uses a partially ordered set of operations to produce and
+run a workflow for bootstrapping and configuring cloud infrastructure and application deployments
+after the initial compute, network, and data infrastructure is deployed. It is designed to be
+idempotent and does not store a persistent state, avoiding the concern of storing sensitive data in
+state files. It can be run on a periodic basis to ensure that the system is kept in the desired
+state.
 
 Blackstart operates on eventual consistency — it is possible for a workflow to not reach completion
 because it is waiting on an external operation to complete such as a database table creation. When a

@@ -5,8 +5,8 @@ title: google_cloudsql_managed_instance
 # google_cloudsql_managed_instance
 
 Manages a Google CloudSQL instance. When managed, the module will ensure that the current workload
-identity is a member of the `cloudsqlsuperuser` role on the instance. The instance is then
-usable for further operations.
+identity is a member of the `cloudsqlsuperuser` role on the instance. The instance is then usable
+for further operations.
 
 **Requirements**
 
