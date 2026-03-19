@@ -161,6 +161,7 @@ operations:
 				name: "workflow_1",
 				in: `
 name: test Workflow
+reconcileInterval: 10m
 operations:
 - module: "test_module"
   id: test0
@@ -171,7 +172,8 @@ operations:
 				out: WorkflowConfigFile{
 					Name: "test Workflow",
 					WorkflowSpec: WorkflowSpec{
-						Description: "",
+						Description:       "",
+						ReconcileInterval: "10m",
 						Operations: []Operation{
 							{
 								Module:      "test_module",

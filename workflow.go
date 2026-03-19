@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"time"
 )
 
 var ErrOperationCycle = errors.New("operation cycle detected")
@@ -24,10 +25,17 @@ type Workflow struct {
 	// Name is a simple Name or identifier for the Workflow.
 	Name string `yaml:"name"`
 
+	// Namespace is the Kubernetes namespace for workflow resources loaded from the API.
+	// It is empty for file-based workflows.
+	Namespace string `yaml:"namespace,omitempty"`
+
 	// Description is an optional field to describe the Workflow in greater detail.
 	Description string `yaml:"description,omitempty"`
 
-	// Operations is a map of operations that will be executed in the Workflow.
+	// ReconcileInterval is the configured reconcile cadence for controller mode.
+	ReconcileInterval time.Duration `yaml:"reconcileInterval,omitempty"`
+
+	// Operations is an ordered list of operations that will be executed in the Workflow.
 	Operations []Operation `yaml:"operations"`
 
 	// Source is the original source of the workflow definition, if available.
@@ -325,6 +333,9 @@ func opoSort(ops []Operation) ([]string, error) {
 // newWorkflowExecution creates a new workflowExecution instance for the given Workflow.
 func newWorkflowExecution(workflow *Workflow, logger *slog.Logger) *workflowExecution {
 	logger = logger.With("workflow", workflow.Name)
+	if workflow.Namespace != "" {
+		logger = logger.With("namespace", workflow.Namespace)
+	}
 	return &workflowExecution{
 		w:      workflow,
 		opCtxs: make(map[string]*moduleContext, len(workflow.Operations)),

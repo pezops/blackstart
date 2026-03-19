@@ -118,6 +118,12 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+              reconcileInterval:
+                default: 5m
+                description: |-
+                  ReconcileInterval controls how often this Workflow should be reconciled when running in
+                  controller mode. If not set, the default is 5m.
+                type: string
             required:
             - operations
             type: object
@@ -125,12 +131,21 @@ spec:
             description: WorkflowStatus contains runtime status and result information
               about the Workflow.
             properties:
+              lastError:
+                description: LastError is a short summary of the most recent error,
+                  if the last run failed.
+                type: string
               lastOperation:
                 description: LastOperation is the identifier of the last operation
                   that was executed in the last run.
                 type: string
               lastRan:
                 description: LastRan is the time the Workflow was last run, if ever.
+                format: date-time
+                type: string
+              nextRun:
+                description: NextRun is the next scheduled run time for this Workflow
+                  in controller mode.
                 format: date-time
                 type: string
               operationsCompleted:

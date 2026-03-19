@@ -17,10 +17,12 @@ spec:
           serviceAccountName: {{ .Values.serviceAccount.name }}
           containers:
             - name: blackstart
-              image: "{{ if .Values.image.registry }}{{ .Values.image.registry }}/{{ end }}{{ .Values.image.repository }}{{ if .Values.image.tag }}:{{ .Values.image.tag }}{{ end }}"
+              image: "{{ if .Values.image.registry }}{{ .Values.image.registry }}/{{ end }}{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              {{- if not .Values.watchAllNamespaces }}
               env:
+                - name: BLACKSTART_RUNTIME_MODE
+                  value: "once"
+              {{- if not .Values.watchAllNamespaces }}
                 - name: BLACKSTART_K8S_NAMESPACE
                   value: {{ .Release.Namespace | quote }}
               {{- end }}

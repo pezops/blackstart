@@ -45,7 +45,17 @@ func (h *textHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *textHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &textHandler{out: h.out, mu: h.mu, group: h.group, level: h.level, source: h.source, attrs: attrs}
+	combined := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
+	combined = append(combined, h.attrs...)
+	combined = append(combined, attrs...)
+	return &textHandler{
+		out:    h.out,
+		mu:     h.mu,
+		group:  h.group,
+		level:  h.level,
+		source: h.source,
+		attrs:  combined,
+	}
 }
 
 func (h *textHandler) WithGroup(name string) slog.Handler {

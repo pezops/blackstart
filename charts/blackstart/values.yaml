@@ -5,11 +5,17 @@ serviceAccount:
 image:
   registry: "ghcr.io"
   repository: "pezops/blackstart"
-  tag: "0.1.0"
+  tag: ""
   pullPolicy: IfNotPresent
 
-cronJob:
+controller:
   enabled: true
+  maxParallelReconciliations: 4
+  resyncInterval: "15s"
+  queueWaitWarningThreshold: "30s"
+
+cronJob:
+  enabled: false
   schedule: "*/3 * * * *" # Run every 3 minutes
   concurrencyPolicy: "Forbid"
   startingDeadlineSeconds: 60
@@ -27,6 +33,7 @@ rbac:
     - apiGroups: ["blackstart.pezops.github.io"]
       resources: ["workflows/status"]
       verbs: ["update"]
+    # This allows the kubernetes modules to manage configmaps and secrets
     - apiGroups: [""]
       resources: ["secrets", "configmaps"]
       verbs: ["create", "list", "get", "update"]

@@ -50,6 +50,11 @@ type WorkflowSpec struct {
 	// Optional human description
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 
+	// ReconcileInterval controls how often this Workflow should be reconciled when running in
+	// controller mode. If not set, the default is 5m.
+	// +kubebuilder:default:="5m"
+	ReconcileInterval string `yaml:"reconcileInterval,omitempty" json:"reconcileInterval,omitempty"`
+
 	// A partially ordered set of operations to be executed.
 	// +kubebuilder:validation:MinItems=1
 	Operations []Operation `yaml:"operations" json:"operations"`
@@ -220,6 +225,9 @@ type WorkflowStatus struct {
 	// LastRan is the time the Workflow was last run, if ever.
 	LastRan metav1.Time `json:"lastRan,omitempty"`
 
+	// NextRun is the next scheduled run time for this Workflow in controller mode.
+	NextRun metav1.Time `json:"nextRun,omitempty"`
+
 	// Successful indicates whether the last run was successful.
 	Successful string `json:"successful,omitempty"`
 
@@ -229,6 +237,9 @@ type WorkflowStatus struct {
 	// Result contains any result information from the last run, including error messages if
 	// applicable.
 	Result string `json:"result,omitempty"`
+
+	// LastError is a short summary of the most recent error, if the last run failed.
+	LastError string `json:"lastError,omitempty"`
 
 	// OperationsCompleted is the number of operations that were completed in the last run. This
 	// is stored in a fraction format where the denominator is the total number of operations in

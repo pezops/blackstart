@@ -20,6 +20,7 @@ kind: Workflow
 metadata:
   name: demo-workflow
 spec:
+  reconcileInterval: 5m
   operations:
     - name: add svc account
       id: test_svc_account
@@ -52,6 +53,9 @@ spec:
             output: user
         permission: "pg_monitor"
 ```
+
+`reconcileInterval` controls how often the controller re-runs the workflow. If omitted, Blackstart
+uses a default of `5m`.
 
 ## Execution Flow
 

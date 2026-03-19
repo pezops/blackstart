@@ -111,3 +111,19 @@ func TestTextLogger_OutputFormat(t *testing.T) {
 	assert.Contains(t, line, "workflow started")
 	assert.Contains(t, line, "operation=op1")
 }
+
+func TestTextLogger_WithAttrs_ChainsWithoutDropping(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := &RuntimeConfig{
+		LogFormat: "text",
+		LogLevel:  "info",
+	}
+
+	logger := newLoggerForWriter(cfg, &buf).With("workflow", "wf-a").With("namespace", "default")
+	logger.Info("starting workflow execution")
+
+	line := string(bytes.TrimSpace(buf.Bytes()))
+	require.NotEmpty(t, line)
+	assert.Contains(t, line, "workflow=wf-a")
+	assert.Contains(t, line, "namespace=default")
+}

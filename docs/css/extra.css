@@ -11,13 +11,27 @@
   /*overflow-wrap: normal !important;*/
 }
 
-/* Keep Helm Values key names in the first column on one line. */
+/* Allow Helm Values key names to wrap at normal boundaries (for example "." and spaces). */
 .md-typeset h2#helm-values ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(1) code {
-  white-space: nowrap !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
 }
 
 /* Keep flags and env vars in the first two columns on one line. */
-.md-typeset h2#runtime-flags-and-environment-variables ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(1) code,
-.md-typeset h2#runtime-flags-and-environment-variables ~ .md-typeset__scrollwrap .md-typeset__table table td:nth-child(2) code {
+.md-typeset
+  h2#runtime-flags-and-environment-variables
+  ~ .md-typeset__scrollwrap
+  .md-typeset__table
+  table
+  td:nth-child(1)
+  code,
+.md-typeset
+  h2#runtime-flags-and-environment-variables
+  ~ .md-typeset__scrollwrap
+  .md-typeset__table
+  table
+  td:nth-child(2)
+  code {
   white-space: nowrap !important;
 }

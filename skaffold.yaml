@@ -20,12 +20,12 @@ manifests:
   helm:
     releases:
       - name: blackstart
-        remoteChart: blackstart
-        repo: https://pezops.github.io/charts/
+        chartPath: ./charts/blackstart
         namespace: blackstart
         createNamespace: true
         setValueTemplates:
-          cronJob.schedule: "* * * * *"
+          controller.enabled: "true"
+          cronJob.enabled: "false"
           image.registry: ""
           image.repository: "{{.IMAGE_REPO_blackstart}}"
           image.tag: "{{.IMAGE_TAG_blackstart}}"

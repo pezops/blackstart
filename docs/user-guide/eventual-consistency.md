@@ -1,9 +1,12 @@
 # Eventual Consistency
 
-Blackstart is designed with the principle of **eventual consistency** at its core. This means that
-workflows are not expected to complete in a single run. Instead, they are designed to be executed
-periodically, making incremental progress until the entire system reaches the desired state defined
-in your workflow YAML.
+Blackstart is designed with the principle of **eventual consistency** at its core. Workflows are not
+expected to complete in a single run. In controller mode, each workflow runs on its configured
+`spec.reconcileInterval` (default `5m`) and makes incremental progress until the desired state is
+reached.
+
+Controller mode watches `Workflow` resources for add/update/delete changes and also performs a
+periodic full resync (`controller.resyncInterval`) as a safety net.
 
 This approach provides immense flexibility and resilience, especially in modern, distributed
 environments where different components may come online or be updated at different times.
@@ -89,3 +92,12 @@ On a subsequent run, after cert-manager has done its job, the `Check` will find 
 workflow will proceed to use it, completing successfully. This model allows different teams and
 systems to work independently, relying on Blackstart's periodic, eventually consistent runs to
 stitch everything together correctly over time.
+
+## Restart Behavior
+
+Blackstart stores workflow run status on the `Workflow` object, including `status.lastRan`. On
+controller restart, Blackstart recomputes schedule from status using:
+
+`now >= lastRan + reconcileInterval`
+
+If a workflow is overdue at startup, it is queued immediately.
