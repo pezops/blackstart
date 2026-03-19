@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Fix kubernetes configmap defaults, correct missing resource detection (#30) by @mbrancato
+
 ## [0.0.2] - 2026-03-18
 
 ### 🐛 Bug Fixes
