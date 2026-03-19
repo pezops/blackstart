@@ -8,14 +8,13 @@
 
 ### 🐛 Bug Fixes
 
-- Fix kubernetes configmap defaults, correct missing resource detection (#30) by @mbrancato
-
-## [0.0.2] - 2026-03-18
-
-### 🐛 Bug Fixes
-
+- Release version flags, adjust workflow trigger (#15) by @mbrancato
+- Move docs deploy to a workflow_run trigger (#16) by @mbrancato
+- Remove duplicate release trigger (#17) by @mbrancato
+- Pull helm index from release (#18) by @mbrancato
 - Use common chart filename in release assets (#19) by @mbrancato
 - Fix test waiting for database (#26) by @mbrancato
+- Fix kubernetes configmap defaults, correct missing resource detection (#30) by @mbrancato
 
 ### 📚 Documentation
 
@@ -30,19 +29,11 @@
 - Fix args for git-cliff action (#27) by @mbrancato
 - Add specific git ref for cosign action mising floating tag (#28) by @mbrancato
 - Remove crane release workflow tool as a dependency (#29) by @mbrancato
+- Dependency updates and prep for release (#32) by @mbrancato
 
 ### New Contributors
 
 * @github-actions[bot] made their first contribution
-
-## [0.0.1] - 2025-10-20
-
-### 🐛 Bug Fixes
-
-- Release version flags, adjust workflow trigger (#15) by @mbrancato
-- Move docs deploy to a workflow_run trigger (#16) by @mbrancato
-- Remove duplicate release trigger (#17) by @mbrancato
-- Pull helm index from release (#18) by @mbrancato
 
 ## [0.0.0] - 2025-10-19
 
