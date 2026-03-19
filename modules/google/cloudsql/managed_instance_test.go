@@ -187,7 +187,12 @@ func TestConnectSvcAcct(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Error reading credentials file: %v", err)
 		}
-		creds, err = google.CredentialsFromJSON(ctx, b, "https://www.googleapis.com/auth/cloud-platform")
+		creds, err = google.CredentialsFromJSONWithTypeAndParams(
+			ctx,
+			b,
+			google.ServiceAccount,
+			google.CredentialsParams{Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"}},
+		)
 		if err != nil {
 			t.Fatalf("Error creating credentials: %v", err)
 		}
