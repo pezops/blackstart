@@ -14,22 +14,19 @@ To install Blackstart on Kubernetes, you can use the provided Helm chart. First,
 Helm repository:
 
 ```bash
-helm repo add pezops https://pezops.github.io/blackstart/charts
+helm repo add blackstart https://pezops.github.io/blackstart/charts
 helm repo update
 ```
 
 Then, install the chart:
 
 ```bash
-helm install blackstart pezops/blackstart --version <chart-version>
+helm install blackstart blackstart/blackstart --version <chart-version> --namespace blackstart --create-namespace
 ```
 
-Chart packages are published with each GitHub release. The Helm repo index is served from the docs
-site and points to those release assets.
-
-This will deploy Blackstart in your Kubernetes cluster with default configurations. You can
-customize the installation by providing a `values.yaml` file or using command-line options to
-override specific settings.
+Chart packages are published with each GitHub release. This will deploy Blackstart in your
+Kubernetes cluster with default configurations. You can customize the installation by providing a
+`values.yaml` file or using command-line options to override specific settings.
 
 By default, the chart deploys a controller Deployment (`controller.enabled=true`) and disables the
 CronJob mode (`cronJob.enabled=false`).
