@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Minor docs updates for helm and before release (#33) by @mbrancato
+
 ## [0.1.0] - 2026-03-19
 
 ### 🚀 Features
