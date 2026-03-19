@@ -58,6 +58,13 @@ func (f *fakeStatusWriter) Patch(
 	return nil
 }
 
+// Apply is not implemented in this fake resource for simplicity.
+func (f *fakeStatusWriter) Apply(
+	ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption,
+) error {
+	return nil
+}
+
 // Create is not implemented in this fake resource for simplicity.
 func (f *fakeStatusWriter) Create(
 	ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption,

@@ -11,10 +11,6 @@ is designed to be idempotent and does not store a persistent state, avoiding the
 sensitive data in state files. It can be run on a periodic basis to ensure that the system is kept
 in the desired state.
 
-> [!WARNING]  
-> Blackstart is still being developed and does not currently have an initial release. Artifacts
-> including helm charts and container images are not yet published.
-
 Blackstart operates on eventual consistency — it is possible for a workflow to not reach completion
 because it is waiting on an external operation to complete such as a database table creation. When a
 workflow runs, Blackstart builds a directed acyclic graph of operations, processing them in a

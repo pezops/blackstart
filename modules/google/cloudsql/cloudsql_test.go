@@ -2,12 +2,28 @@ package cloudsql
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
 )
+
+func testCredentialsTypeFromJSON(t *testing.T, credJSON string) google.CredentialsType {
+	t.Helper()
+	var payload struct {
+		Type string `json:"type"`
+	}
+	err := json.Unmarshal([]byte(credJSON), &payload)
+	if err != nil {
+		t.Fatalf("failed to parse test credentials JSON: %v", err)
+	}
+	if payload.Type == "" {
+		t.Fatalf("test credentials JSON missing type field")
+	}
+	return google.CredentialsType(payload.Type)
+}
 
 // TestPostgresIamUser tests the postgresIamUser function with different types of credentials.
 func TestPostgresIamUser(t *testing.T) {
@@ -56,7 +72,12 @@ func TestPostgresIamUser(t *testing.T) {
 		t.Run(
 			tt.name, func(t *testing.T) {
 				ctx := context.Background()
-				creds, err := google.CredentialsFromJSON(ctx, []byte(tt.credJson))
+				creds, err := google.CredentialsFromJSONWithTypeAndParams(
+					ctx,
+					[]byte(tt.credJson),
+					testCredentialsTypeFromJSON(t, tt.credJson),
+					google.CredentialsParams{},
+				)
 				if err != nil {
 					t.Errorf("Failed to create credentials: %v", err)
 					return
