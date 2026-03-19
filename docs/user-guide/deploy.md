@@ -2,9 +2,9 @@
 
 # Deploy
 
-Blackstart is designed to be run periodically, typically as a cron job or a scheduled task in a
-cloud environment. The following sections describe some examples of how to install and run
-Blackstart.
+Blackstart is designed to be run periodically as a Kubernetes controller. The default Helm
+installation runs Blackstart in a single-replica Deployment and continuously reconciles `Workflow`
+resources on each workflow's configured interval.
 
 ## Kubernetes
 
@@ -30,6 +30,9 @@ site and points to those release assets.
 This will deploy Blackstart in your Kubernetes cluster with default configurations. You can
 customize the installation by providing a `values.yaml` file or using command-line options to
 override specific settings.
+
+By default, the chart deploys a controller Deployment (`controller.enabled=true`) and disables the
+CronJob mode (`cronJob.enabled=false`).
 
 Install the CRD before creating any workflow resources:
 
@@ -66,3 +69,6 @@ spec:
 This manifest schedules Blackstart to run every hour. Make sure to create a service account with the
 necessary permissions for Blackstart to operate, and install the CRDs before creating any workflow
 resources.
+
+The CronJob manifest is a legacy/optional run mode. In most deployments, prefer the chart default
+controller mode.

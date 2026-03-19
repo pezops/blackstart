@@ -17,6 +17,9 @@ CRD_VERSIONS= \
 # List of CRD YAMLs expected
 CRD_YAMLS = \
   config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml
+CRD_CHART_DIR=charts/blackstart/crds
+CRD_CHART_SRC=config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml
+CRD_CHART_DST=$(CRD_CHART_DIR)/blackstart.pezops.github.io_workflows-v1alpha1.yaml
 
 # Controller-gen: https://github.com/kubernetes-sigs/controller-tools
 CONTROLLER_GEN_VERSION=v0.19.0
@@ -33,7 +36,7 @@ GOLANGCI_LINT=$(BUILD_TOOLS_DIR)/bin/golangci-lint
 
 RELEASE ?= 0.0.0-dev
 
-.PHONY: build docs-deps docs-serve crds docs-modules-gen docs-format docs-venv utils blackstart clean
+.PHONY: build docs-deps docs-serve crds sync-chart-crds docs-modules-gen docs-format docs-venv utils blackstart clean
 
 build: utils crds docs lint test
 
@@ -87,9 +90,15 @@ crds: controller-gen
 	@mkdir -p $(CRD_OUT)
 	@for api in $(CRD_VERSIONS); do \
   	  echo "Generating CRDs for API version $$api"; \
-	  $(CONTROLLER_GEN) crd paths=./api/$$api/... output:crd:dir=$(CRD_OUT)/$$api; \
-	  $(CONTROLLER_GEN) object paths=./api/$$api/...; \
-	done
+		  $(CONTROLLER_GEN) crd paths=./api/$$api/... output:crd:dir=$(CRD_OUT)/$$api; \
+		  $(CONTROLLER_GEN) object paths=./api/$$api/...; \
+		done
+	@$(MAKE) sync-chart-crds
+
+sync-chart-crds:
+	@mkdir -p $(CRD_CHART_DIR)
+	@cp "$(CRD_CHART_SRC)" "$(CRD_CHART_DST)"
+	@echo "Synced chart CRD: $(CRD_CHART_DST)"
 
 docs: docs-modules-gen docs-format docs-requirements
 docs-modules-gen:

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,8 +16,11 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"gopkg.in/yaml.v3"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/pezops/blackstart"
@@ -28,6 +30,8 @@ import (
 )
 
 var Version = "dev"
+
+const defaultReconcileInterval = 5 * time.Minute
 
 func main() {
 	config, err := blackstart.ReadConfig()
@@ -96,9 +100,32 @@ func run(ctx context.Context, kubeClient client.Client) (err error) {
 	if config.WorkflowFile != "" {
 		err = runWorkflowFromFile(ctx)
 	} else {
-		err = runWorkflowsInK8s(ctx, kubeClient)
+		var mode string
+		mode, err = parseRuntimeMode(config.RuntimeMode)
+		if err != nil {
+			return err
+		}
+		if mode == "once" {
+			err = runWorkflowsInK8s(ctx, kubeClient)
+		} else {
+			err = runWorkflowsControllerInK8s(ctx, kubeClient)
+		}
 	}
 	return
+}
+
+func parseRuntimeMode(raw string) (string, error) {
+	mode := strings.TrimSpace(raw)
+	if mode == "" {
+		return "controller", nil
+	}
+	if strings.EqualFold(mode, "controller") {
+		return "controller", nil
+	}
+	if strings.EqualFold(mode, "once") {
+		return "once", nil
+	}
+	return "", fmt.Errorf("invalid runtime mode %q: expected \"controller\" or \"once\"", raw)
 }
 
 // runWorkflowFromFile loads a workflow from a file and runs it.
@@ -125,17 +152,12 @@ func runWorkflowFromFile(ctx context.Context) (err error) {
 // runWorkflowsInK8s loads workflows from Kubernetes and runs them concurrently.
 func runWorkflowsInK8s(ctx context.Context, kubeClient client.Client) (err error) {
 	logger := loggerFromCtx(ctx)
-	config := configFromCtx(ctx)
 
 	logger.Info("loading workflow resources from kubernetes")
 
 	var workflows []*blackstart.Workflow
-	namespaces := strings.Split(config.KubeNamespace, ",")
-	if strings.TrimSpace(config.KubeNamespace) == "" {
-		namespaces = []string{""}
-	}
+	namespaces := parseNamespaces(configFromCtx(ctx))
 	for _, ns := range namespaces {
-		ns = strings.TrimSpace(ns)
 		var nsWorkflows []*blackstart.Workflow
 		nsWorkflows, err = loadWorkflowsFromK8s(ctx, kubeClient, ns)
 		if err != nil {
@@ -187,34 +209,46 @@ func runWorkflowsInK8s(ctx context.Context, kubeClient client.Client) (err error
 // runWorkflowInK8s executes a single workflow and updates its Kubernetes status.
 func runWorkflowInK8s(ctx context.Context, c client.Client, wf *blackstart.Workflow) error {
 	logger := loggerFromCtx(ctx)
-	start := time.Now()
 	result := wf.Run(ctx)
+	end := time.Now()
 	resultMsg := ""
+	lastError := ""
 	lastOpStart := ""
+	lastOpFields := []any{}
+	if result.Op != nil {
+		lastOpStart = result.Op.Id
+		lastOpFields = append(lastOpFields, "operation", result.Op.Id)
+	}
 
 	if result.Err != nil {
-		logger.Warn(
-			"workflow execution did not complete", "workflow", wf.Name, "phase", result.Phase, "operation",
-			result.Op.Id, "error", result.Err.Error(),
-		)
-		lastOpStart = result.Op.Id
+		logFields := []any{
+			"workflow", wf.Name,
+			"namespace", wf.Namespace,
+			"phase", result.Phase,
+			"error", result.Err.Error(),
+		}
+		logFields = append(logFields, lastOpFields...)
+		logger.Warn("workflow execution did not complete", logFields...)
 		resultMsg = result.Err.Error()
+		lastError = result.Err.Error()
 	} else {
-		logger.Info("workflow execution complete", "workflow", wf.Name)
+		logger.Info("workflow execution complete", "workflow", wf.Name, "namespace", wf.Namespace)
 	}
 
 	// Update the workflow status in Kubernetes.
 	status := v1alpha1.WorkflowStatus{
-		LastRan:             metav1.NewTime(start),
+		LastRan:             metav1.NewTime(end),
+		NextRun:             metav1.NewTime(end.Add(wf.ReconcileInterval)),
 		Successful:          strconv.FormatBool(result.Err == nil),
 		Phase:               result.Phase,
 		Result:              resultMsg,
+		LastError:           lastError,
 		OperationsCompleted: fmt.Sprintf("%d/%d", result.CompletedOperations, result.TotalOperations),
 		LastOperation:       lastOpStart,
 	}
 	err := updateWorkflowStatusFunc(ctx, c, wf, status)
 	if err != nil {
-		logger.Error("error updating workflow status", "workflow", wf.Name, "error", err)
+		logger.Error("error updating workflow status", "workflow", wf.Name, "namespace", wf.Namespace, "error", err)
 	}
 	return err
 }
@@ -229,13 +263,30 @@ func updateWorkflowStatusInK8s(
 	}
 	kwf, ok := wf.Source.(*v1alpha1.Workflow)
 	if !ok {
-		t := reflect.TypeOf(v1alpha1.Workflow{}).String()
-		return fmt.Errorf("unexpected workflow source: %v", t)
+		return fmt.Errorf("unexpected workflow source type: %T", wf.Source)
 	}
 
-	kwf.Status = status
-	err := c.Status().Update(ctx, kwf)
+	key := types.NamespacedName{Name: kwf.Name, Namespace: kwf.Namespace}
+	err := retry.RetryOnConflict(
+		retry.DefaultBackoff, func() error {
+			var latest v1alpha1.Workflow
+			getErr := c.Get(ctx, key, &latest)
+			if getErr != nil {
+				return getErr
+			}
+			latest.Status = status
+			updateErr := c.Status().Update(ctx, &latest)
+			if updateErr != nil {
+				return updateErr
+			}
+			kwf.Status = status
+			return nil
+		},
+	)
 	if err != nil {
+		if apierrors.IsConflict(err) {
+			return fmt.Errorf("error updating workflow status after retries (conflict): %w", err)
+		}
 		return fmt.Errorf("error updating workflow status: %w", err)
 	}
 	return nil
@@ -271,19 +322,40 @@ func loadWorkflowsFromK8s(ctx context.Context, c client.Client, namespace string
 	}
 
 	workflows := make([]*blackstart.Workflow, len(workflowList.Items))
-	for i, kwf := range workflowList.Items {
-		bsWf := new(blackstart.Workflow)
-		bsWf.Name = kwf.Name
-		bsWf.Description = kwf.Spec.Description
-		bsWf.Operations, err = loadOperations(kwf.Spec.Operations)
-		if err != nil {
-			return nil, fmt.Errorf("error loading operations for workflow %s: %w", kwf.Name, err)
+	for i := range workflowList.Items {
+		kwf := workflowList.Items[i].DeepCopy()
+		bsWf, convErr := workflowFromK8sResource(kwf)
+		if convErr != nil {
+			return nil, convErr
 		}
-		bsWf.Source = &kwf
 		workflows[i] = bsWf
 	}
 
 	return workflows, nil
+}
+
+func workflowFromK8sResource(kwf *v1alpha1.Workflow) (*blackstart.Workflow, error) {
+	if kwf == nil {
+		return nil, fmt.Errorf("workflow resource is nil")
+	}
+	wfRef := types.NamespacedName{Namespace: kwf.Namespace, Name: kwf.Name}.String()
+	reconcileInterval, err := parseReconcileInterval(kwf.Spec.ReconcileInterval)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing reconcile interval for workflow %s: %w", wfRef, err)
+	}
+	ops, err := loadOperations(kwf.Spec.Operations)
+	if err != nil {
+		return nil, fmt.Errorf("error loading operations for workflow %s: %w", wfRef, err)
+	}
+
+	return &blackstart.Workflow{
+		Name:              kwf.Name,
+		Namespace:         kwf.Namespace,
+		Description:       kwf.Spec.Description,
+		ReconcileInterval: reconcileInterval,
+		Operations:        ops,
+		Source:            kwf,
+	}, nil
 }
 
 // loadWorkflowFromFile reads a workflow definition from a file and converts it to a core Workflow.
@@ -312,12 +384,31 @@ func loadWorkflowFromFile(ctx context.Context) (*blackstart.Workflow, error) {
 	var wf blackstart.Workflow
 	wf.Name = apiWf.Name
 	wf.Description = apiWf.Description
+	wf.ReconcileInterval, err = parseReconcileInterval(apiWf.ReconcileInterval)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing reconcile interval for workflow %s: %w", wf.Name, err)
+	}
 	wf.Operations, err = loadOperations(apiWf.Operations)
 	if err != nil {
 		return nil, fmt.Errorf("error loading operations for workflow %s: %w", wf.Name, err)
 	}
 	wf.Source = apiWf
 	return &wf, nil
+}
+
+func parseReconcileInterval(raw string) (time.Duration, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return defaultReconcileInterval, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid reconcileInterval %q: %w", raw, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid reconcileInterval %q: must be greater than 0", raw)
+	}
+	return d, nil
 }
 
 // loadOperations converts operations from configuration to core operations.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,8 @@ func TestRunInK8sMode(t *testing.T) {
 
 	restore := patchEnv(t, blackstart.K8sNamespaceEnv, "default")
 	defer restore()
+	restoreMode := patchEnv(t, blackstart.RuntimeModeEnv, "once")
+	defer restoreMode()
 
 	config, err := blackstart.ReadConfig()
 	require.NoError(t, err, "ReadConfig() should not return an error")
@@ -219,6 +222,8 @@ func TestRunInK8sMode_MultiNamespaceContinuesAfterEmptyNamespace(t *testing.T) {
 
 	restore := patchEnv(t, blackstart.K8sNamespaceEnv, "team-a,team-b")
 	defer restore()
+	restoreMode := patchEnv(t, blackstart.RuntimeModeEnv, "once")
+	defer restoreMode()
 
 	config, err := blackstart.ReadConfig()
 	require.NoError(t, err, "ReadConfig() should not return an error")
@@ -231,6 +236,112 @@ func TestRunInK8sMode_MultiNamespaceContinuesAfterEmptyNamespace(t *testing.T) {
 	err = run(ctx, fakeClient)
 	require.NoError(t, err, "run() should continue to the second namespace")
 
-	_, found := statusClient.statusStore.Load("team-b-workflow")
+	_, found := statusClient.statusStore.Load("team-b/team-b-workflow")
 	require.True(t, found, "workflow in second namespace should have been processed")
+}
+
+func TestParseReconcileInterval(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{
+			name:    "default when empty",
+			input:   "",
+			want:    defaultReconcileInterval,
+			wantErr: false,
+		},
+		{
+			name:    "trimmed default when whitespace",
+			input:   "  ",
+			want:    defaultReconcileInterval,
+			wantErr: false,
+		},
+		{
+			name:    "valid duration",
+			input:   "1h30m",
+			want:    90 * time.Minute,
+			wantErr: false,
+		},
+		{
+			name:    "invalid format",
+			input:   "hourly",
+			wantErr: true,
+		},
+		{
+			name:    "zero duration is invalid",
+			input:   "0s",
+			wantErr: true,
+		},
+		{
+			name:    "negative duration is invalid",
+			input:   "-5m",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name, func(t *testing.T) {
+				got, err := parseReconcileInterval(tt.input)
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			},
+		)
+	}
+}
+
+func TestParseRuntimeMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "empty defaults to controller",
+			input: "",
+			want:  "controller",
+		},
+		{
+			name:  "whitespace defaults to controller",
+			input: "  ",
+			want:  "controller",
+		},
+		{
+			name:  "controller accepted case insensitive",
+			input: "ConTRoller",
+			want:  "controller",
+		},
+		{
+			name:  "once accepted case insensitive",
+			input: "ONCE",
+			want:  "once",
+		},
+		{
+			name:    "invalid non-empty rejected",
+			input:   "cron",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name, func(t *testing.T) {
+				got, err := parseRuntimeMode(tt.input)
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			},
+		)
+	}
 }

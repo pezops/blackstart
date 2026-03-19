@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -34,12 +35,19 @@ type fakeStatusWriter struct {
 	parent *fakeClientWithStatus
 }
 
+func namespacedStoreKey(obj client.Object) string {
+	if obj.GetNamespace() == "" {
+		return obj.GetName()
+	}
+	return fmt.Sprintf("%s/%s", obj.GetNamespace(), obj.GetName())
+}
+
 // Update simulates updating the status subresource by storing the status in a map.
 func (f *fakeStatusWriter) Update(
 	ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption,
 ) error {
 	// Store the status in the statusStore map
-	f.parent.statusStore.Store(obj.GetName(), obj.DeepCopyObject())
+	f.parent.statusStore.Store(namespacedStoreKey(obj), obj.DeepCopyObject())
 	return nil
 }
 

@@ -5,6 +5,7 @@ metadata:
   name: dev-workflow-pass
   namespace: blackstart
 spec:
+  reconcileInterval: 1m
   operations:
     - name: mock_pass
       id: mock_pass_0
@@ -31,6 +32,7 @@ metadata:
   name: dev-workflow-fail
   namespace: blackstart
 spec:
+  reconcileInterval: 1m
   operations:
     - name: mock_pass
       id: mock_pass_0
