@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/pezops/blackstart"
 )
@@ -85,13 +86,13 @@ func (s *secretValueModule) Validate(op blackstart.Operation) error {
 		return fmt.Errorf("input '%s' must be provided", inputSecret)
 	}
 
-	// A valid update policy is required
-	var updatePolicyInput blackstart.Input
-	updatePolicyInput, ok = op.Inputs[inputUpdatePolicy]
-	if !ok {
-		return fmt.Errorf("input '%s' must be provided", inputUpdatePolicy)
+	updatePolicy := updatePolicyOverwrite
+	if updatePolicyInput, exists := op.Inputs[inputUpdatePolicy]; exists {
+		updatePolicy = strings.TrimSpace(updatePolicyInput.String())
+		if updatePolicy == "" {
+			updatePolicy = updatePolicyOverwrite
+		}
 	}
-	updatePolicy := updatePolicyInput.String()
 
 	_, ok = updatePolicies[updatePolicy]
 	if !ok {
@@ -128,11 +129,17 @@ func (s *secretValueModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	}
 	desiredValue := desiredValueInput.String()
 
+	updatePolicy := updatePolicyOverwrite
 	updatePolicyInput, err := ctx.Input(inputUpdatePolicy)
-	if err != nil {
-		return false, err
+	if err == nil {
+		updatePolicy = strings.TrimSpace(updatePolicyInput.String())
 	}
-	updatePolicy := updatePolicyInput.String()
+	if updatePolicy == "" {
+		updatePolicy = updatePolicyOverwrite
+	}
+	if _, ok := updatePolicies[updatePolicy]; !ok {
+		return false, fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+	}
 
 	// If DoesNotExist is true, success is either the Secret or key does not exist
 	if ctx.DoesNotExist() {
