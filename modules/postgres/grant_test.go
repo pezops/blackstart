@@ -59,6 +59,28 @@ func TestGrant(t *testing.T) {
 			},
 			grant: grantModule{},
 		},
+		{
+			name: "table_select_update_grant",
+			setup: func(t *testing.T) {
+				_, err = db.Exec("CREATE ROLE blackstart_2")
+				if err != nil {
+					t.Fatalf("failed to create Role: %v", err)
+				}
+				_, err = db.Exec("CREATE TABLE IF NOT EXISTS public.blackstart_grant_test_orders (id INT)")
+				if err != nil {
+					t.Fatalf("failed to create table: %v", err)
+				}
+			},
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("blackstart_2"),
+				inputPermission: blackstart.NewInputFromValue("SELECT,UPDATE"),
+				inputSchema:     blackstart.NewInputFromValue("public"),
+				inputResource:   blackstart.NewInputFromValue("blackstart_grant_test_orders"),
+				inputScope:      blackstart.NewInputFromValue("table"),
+				inputConnection: blackstart.NewInputFromValue(db),
+			},
+			grant: grantModule{},
+		},
 	}
 
 	// run each test

@@ -102,6 +102,39 @@ usable for further operations.
 module: google_cloudsql_managed_instance
 inputs:
   instance: my-cloudsql-instance`,
+			"Manage instance and grant table privileges": `operations:
+  - id: manage-instance
+    module: google_cloudsql_managed_instance
+    inputs:
+      instance: my-cloudsql-instance
+      project: my-gcp-project
+      connection_type: PRIVATE_IP
+
+  - id: grant-app-user-orders-select
+    module: postgres_grant
+    inputs:
+      connection:
+        fromDependency:
+          id: manage-instance
+          output: connection
+      role: app_user
+      permission: SELECT
+      scope: TABLE
+      schema: public
+      resource: orders
+
+  - id: grant-app-user-orders-update
+    module: postgres_grant
+    inputs:
+      connection:
+        fromDependency:
+          id: manage-instance
+          output: connection
+      role: app_user
+      permission: UPDATE
+      scope: TABLE
+      schema: public
+      resource: orders`,
 		},
 	}
 }
