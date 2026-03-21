@@ -6,6 +6,10 @@
 
 - Add support for GKE and AWS workload identity in Helm chart (#37) by @mbrancato
 
+### 📚 Documentation
+
+- Add improved CloudSQL module example (#36) by @mbrancato
+
 ### ⚙️ Miscellaneous Tasks
 
 - Prune missing helm chart versions on release (#35) by @mbrancato
