@@ -33,7 +33,16 @@ CronJob mode (`cronJob.enabled=false`).
 
 #### GKE Workload Identity
 
-You can annotate the chart-managed Kubernetes service account to use a Google service account.
+Review the Google Kubernetes Engine documentation to learn how to authenticate from Kubernetes
+workloads to Google Cloud APIs:
+[https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity).
+
+When using Workload Identity Federation for GKE, assign IAM policy bindings to the Kubernetes
+service account used by Blackstart (chart-created or pre-existing). This mode requires no
+service-account annotation values in the Helm chart.
+
+When using annotation-based GKE Workload Identity, configure native chart values to render
+`iam.gke.io/gcp-service-account` on the service account.
 
 Example `values.yaml`:
 
@@ -41,21 +50,35 @@ Example `values.yaml`:
 serviceAccount:
   create: true
   name: blackstart
-  annotations:
-    iam.gke.io/gcp-service-account: <service-account-id>@<project-id>.iam.gserviceaccount.com
+  gcpWorkloadIdentity:
+    enabled: true
+    username: <service-account-id>
+    projectID: <project-id>
 ```
 
-Before installing, follow the Google Cloud guide to grant the Kubernetes service account permission
-to impersonate the Google service account:
-https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity
+#### Amazon EKS Workload access to AWS
 
-Then install or upgrade the chart with your values file:
+Review the Workload access to AWS documentation to learn how to authenticate from Kubernetes
+workloads to AWS APIs:
+[https://docs.aws.amazon.com/eks/latest/userguide/service-accounts.html](https://docs.aws.amazon.com/eks/latest/userguide/service-accounts.html)
 
-```bash
-helm upgrade --install blackstart blackstart/blackstart \
-  --namespace blackstart \
-  --create-namespace \
-  -f values.yaml
+When using EKS Pod Identity, associate the IAM role with the Kubernetes service account used by
+Blackstart (chart-created or pre-existing). This mode requires no service-account annotation values
+in the Helm chart.
+
+When using annotation-based IAM roles for service accounts (IRSA), configure native chart values to
+render `eks.amazonaws.com/role-arn` (and optionally regional STS endpoints) on the service account.
+
+Example `values.yaml`:
+
+```yaml
+serviceAccount:
+  create: true
+  name: blackstart
+  awsIRSA:
+    enabled: true
+    roleARN: arn:aws:iam::<account-id>:role/<role-name>
+    stsRegionalEndpoints: true
 ```
 
 ### CRD Installation
