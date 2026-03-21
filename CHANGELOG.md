@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.2] - 2026-03-21
+## [Unreleased]
 
 ### 🚀 Features
 
@@ -14,6 +14,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prune missing helm chart versions on release (#35) by @mbrancato
+- Publish latest tag with container releases (#39) by @mbrancato
 
 ## [0.1.1] - 2026-03-19
 
