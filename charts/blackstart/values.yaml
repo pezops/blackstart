@@ -2,6 +2,14 @@ serviceAccount:
   create: true
   name: "blackstart"
   annotations: {}
+  gcpWorkloadIdentity:
+    enabled: false # Enable GKE Workload Identity linking to a Google Cloud IAM service account.
+    username: "" # Username portion of the Google service account email (before @).
+    projectID: "" # Project ID of the Google service account email (before .iam.gserviceaccount.com).
+  awsIRSA:
+    enabled: false # Enable Amazon EKS IAM roles for service accounts (IRSA).
+    roleARN: "" # AWS Identity and Access Management (IAM) role ARN to assign.
+    stsRegionalEndpoints: false # Use regional AWS STS endpoints.
 
 image:
   registry: "ghcr.io"
