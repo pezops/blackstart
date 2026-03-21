@@ -121,12 +121,28 @@ jobs:
       - name: Build MkDocs site with strict mode
         run: mkdocs build --strict
 
+  ci-js-unit-tests:
+    name: CI JS Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Run chart index JS tests
+        run: node --test .github/scripts/build-chart-index.test.js
+
   # Summary job that will be used for branch protection
   lint-test-success:
     name: Lint and Test Success
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    needs: [lint, test, docs-build]
+    needs: [lint, test, docs-build, ci-js-unit-tests]
     if: always()
     steps:
       - name: Check all jobs
@@ -143,6 +159,11 @@ jobs:
 
           if [[ "${{ needs.docs-build.result }}" != "success" ]]; then
             echo "❌ Documentation build failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.ci-js-unit-tests.result }}" != "success" ]]; then
+            echo "❌ CI JS unit tests failed"
             exit 1
           fi
 
