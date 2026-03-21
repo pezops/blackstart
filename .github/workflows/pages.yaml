@@ -46,120 +46,17 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Build Helm repository index
+        uses: actions/github-script@v8
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/chart-packages site/charts
-
-          curl -fsSL "https://pezops.github.io/blackstart/charts/index.yaml" -o /tmp/existing-index.yaml || true
-          if [ ! -s /tmp/existing-index.yaml ]; then
-            cat > /tmp/existing-index.yaml <<'YAML'
-          apiVersion: v1
-          entries: {}
-          YAML
-          fi
-
-          releases_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100"
-          curl -fsSL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${releases_api}" > /tmp/releases.json
-
-          jq -r '
-            .[]
-            | select(.draft == false)
-            | . as $release
-            | .assets[]?
-            | select(.name | test("^blackstart(-chart)?-[0-9A-Za-z.+-]+\\.tgz$"))
-            | [(.name | capture("-(?<version>[0-9A-Za-z.+-]+)\\.tgz$").version), $release.tag_name, .name, .browser_download_url]
-            | @tsv
-          ' /tmp/releases.json > /tmp/release-assets.tsv
-
-          if [ ! -s /tmp/release-assets.tsv ]; then
-            cat > site/charts/index.yaml <<'YAML'
-          apiVersion: v1
-          entries: {}
-          YAML
-            echo "No published chart assets found in releases; wrote empty chart index."
-            exit 0
-          fi
-
-          awk -F $'\t' '{print $1}' /tmp/release-assets.tsv | sort -u > /tmp/release-versions.txt
-
-          python - <<'PY'
-          import yaml
-          from pathlib import Path
-
-          idx_path = Path("/tmp/existing-index.yaml")
-          out_path = Path("/tmp/existing-versions.txt")
-
-          idx = yaml.safe_load(idx_path.read_text(encoding="utf-8")) or {}
-          versions = []
-          for entry in (idx.get("entries") or {}).get("blackstart") or []:
-              v = (entry or {}).get("version")
-              if v:
-                  versions.append(str(v))
-
-          out_path.write_text("\n".join(sorted(set(versions))) + ("\n" if versions else ""), encoding="utf-8")
-          PY
-
-          cp /tmp/existing-index.yaml /tmp/merged-index.yaml
-
-          : > /tmp/missing-assets.tsv
-          while IFS=$'\t' read -r version tag name url; do
-            [ -n "${version}" ] || continue
-            [ -n "${tag}" ] || continue
-            [ -n "${name}" ] || continue
-            [ -n "${url}" ] || continue
-            if ! grep -Fxq "${version}" /tmp/existing-versions.txt 2>/dev/null; then
-              printf '%s\t%s\t%s\t%s\n' "${version}" "${tag}" "${name}" "${url}" >> /tmp/missing-assets.tsv
-            fi
-          done < /tmp/release-assets.tsv
-
-          while IFS=$'\t' read -r version tag name url; do
-            [ -n "${version}" ] || continue
-            [ -n "${tag}" ] || continue
-            [ -n "${name}" ] || continue
-            [ -n "${url}" ] || continue
-
-            curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/octet-stream" \
-              "${url}" \
-              -o "/tmp/chart-packages/${name}"
-
-            helm repo index /tmp/chart-packages \
-              --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}" \
-              --merge /tmp/merged-index.yaml
-
-            mv /tmp/chart-packages/index.yaml /tmp/merged-index.yaml
-            rm -f "/tmp/chart-packages/${name}"
-            echo "Merged missing chart version ${version} from ${tag}."
-          done < /tmp/missing-assets.tsv
-
-          python - <<'PY'
-          import yaml
-          from pathlib import Path
-
-          idx_path = Path("/tmp/merged-index.yaml")
-          versions_path = Path("/tmp/release-versions.txt")
-          out_path = Path("site/charts/index.yaml")
-
-          idx = yaml.safe_load(idx_path.read_text(encoding="utf-8")) or {}
-          valid_versions = {
-              line.strip() for line in versions_path.read_text(encoding="utf-8").splitlines() if line.strip()
-          }
-
-          entries = idx.get("entries") or {}
-          blackstart_entries = entries.get("blackstart") or []
-          entries["blackstart"] = [
-              entry for entry in blackstart_entries if str((entry or {}).get("version", "")) in valid_versions
-          ]
-          idx["entries"] = entries
-
-          out_path.write_text(yaml.safe_dump(idx, sort_keys=False), encoding="utf-8")
-          PY
+          CHART_INDEX_OUTPUT: site/charts/index.yaml
+          CHART_EXISTING_INDEX_URL: https://pezops.github.io/blackstart/charts/index.yaml
+          CHART_INCLUDE_LOCAL: "false"
+          CHART_PRINT_OUTPUT: "true"
+        with:
+          script: |
+            const buildChartIndex = require('./.github/scripts/build-chart-index.js');
+            await buildChartIndex({ github, context, core });
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

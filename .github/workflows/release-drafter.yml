@@ -83,6 +83,37 @@ jobs:
           git commit -m "docs(changelog): prepare ${{ github.event.inputs.tag }} [skip ci]"
           git push origin HEAD:main
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Build chart index preview
+        uses: actions/github-script@v8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag }}
+          CHART_INDEX_OUTPUT: /tmp/chart-preview/index.yaml
+          CHART_EXISTING_INDEX_URL: https://pezops.github.io/blackstart/charts/index.yaml
+          CHART_INCLUDE_LOCAL: "true"
+          CHART_LOCAL_VERSION: ${{ github.event.inputs.tag }}
+          CHART_LOCAL_TAG: ${{ github.event.inputs.tag }}
+          CHART_REQUIRE_VERSION: ${{ github.event.inputs.tag }}
+          CHART_PRINT_OUTPUT: "true"
+        with:
+          script: |
+            const tag = process.env.TAG || "";
+            const version = tag.replace(/^v/, "");
+            process.env.CHART_LOCAL_VERSION = version;
+            process.env.CHART_REQUIRE_VERSION = version;
+            const buildChartIndex = require('./.github/scripts/build-chart-index.js');
+            await buildChartIndex({ github, context, core });
+
+      - name: Upload chart index preview artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: chart-index-preview-${{ github.event.inputs.tag }}
+          path: /tmp/chart-preview/index.yaml
+          if-no-files-found: error
+
       - name: Update draft release
         uses: release-drafter/release-drafter@v7
         with:
