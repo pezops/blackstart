@@ -13,12 +13,12 @@ maintaining existing ones.
 
 ## Module Authoring Guidance
 
-If you are adding a new module, this is the minimum path to a production-ready implementation.
+For new modules, this is the minimum path to a production-ready implementation.
 
 ### Before You Code
 
 - Define module scope clearly: one module should manage one coherent resource concern.
-- Decide authoritative behavior up front: what your module manages vs intentionally leaves alone.
+- Decide authoritative behavior up front: what the module manages vs intentionally leaves alone.
 - Design inputs/outputs first (`Info()`), then implement runtime behavior.
 
 ### Implementation Checklist

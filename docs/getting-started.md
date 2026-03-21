@@ -11,7 +11,9 @@ helm repo update
 helm install blackstart blackstart/blackstart --namespace blackstart --create-namespace
 ```
 
-Install the `Workflow` CRD before creating any workflow resources:
+When installing with Helm, the chart installs the `Workflow` CRD automatically.
+
+For manual installs, install the `Workflow` CRD before creating any workflow resources:
 
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/pezops/blackstart/<release-tag>/config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml

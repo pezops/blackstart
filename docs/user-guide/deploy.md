@@ -10,8 +10,8 @@ resources on each workflow's configured interval.
 
 ### Helm Chart
 
-To install Blackstart on Kubernetes, you can use the provided Helm chart. First, add the Blackstart
-Helm repository:
+To install Blackstart on Kubernetes, use the provided Helm chart. First, add the Blackstart Helm
+repository:
 
 ```bash
 helm repo add blackstart https://pezops.github.io/blackstart/charts
@@ -24,9 +24,9 @@ Then, install the chart:
 helm install blackstart blackstart/blackstart --version <chart-version> --namespace blackstart --create-namespace
 ```
 
-Chart packages are published with each GitHub release. This will deploy Blackstart in your
-Kubernetes cluster with default configurations. You can customize the installation by providing a
-`values.yaml` file or using command-line options to override specific settings.
+Chart packages are published with each GitHub release. This deploys Blackstart in the Kubernetes
+cluster with default configuration. Customize the installation with a `values.yaml` file or
+command-line overrides.
 
 By default, the chart deploys a controller Deployment (`controller.enabled=true`) and disables the
 CronJob mode (`cronJob.enabled=false`).
@@ -34,8 +34,8 @@ CronJob mode (`cronJob.enabled=false`).
 #### GKE Workload Identity
 
 Review the Google Kubernetes Engine documentation to learn how to authenticate from Kubernetes
-workloads to Google Cloud APIs:
-[https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity).
+workloads to Google Cloud APIs:<br>
+[https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity)
 
 When using Workload Identity Federation for GKE, assign IAM policy bindings to the Kubernetes
 service account used by Blackstart (chart-created or pre-existing). This mode requires no
@@ -59,7 +59,7 @@ serviceAccount:
 #### Amazon EKS Workload access to AWS
 
 Review the Workload access to AWS documentation to learn how to authenticate from Kubernetes
-workloads to AWS APIs:
+workloads to AWS APIs:<br>
 [https://docs.aws.amazon.com/eks/latest/userguide/service-accounts.html](https://docs.aws.amazon.com/eks/latest/userguide/service-accounts.html)
 
 When using EKS Pod Identity, associate the IAM role with the Kubernetes service account used by
@@ -85,7 +85,7 @@ serviceAccount:
 
 When installing with Helm, the chart installs the `Workflow` CRD automatically.
 
-If you are installing resources manually, install the CRD before creating any workflow resources:
+For manual installs, install the CRD before creating any workflow resources:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/pezops/blackstart/<release-tag>/config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml
@@ -97,8 +97,7 @@ For runtime flags, environment variables, and Helm values, see [Configuration](.
 
 ### Manifest
 
-If you prefer to use a Kubernetes manifest directly, you can create a `CronJob` resource. Here is an
-example manifest:
+For direct manifest usage, create a `CronJob` resource. Example:
 
 ```yaml
 apiVersion: batch/v1
@@ -121,5 +120,5 @@ This manifest schedules Blackstart to run every hour. Make sure to create a serv
 necessary permissions for Blackstart to operate, and install the CRDs before creating any workflow
 resources.
 
-The CronJob manifest is a legacy/optional run mode. In most deployments, prefer the chart default
-controller mode.
+The CronJob manifest is a legacy/optional run mode. In most deployments, running Blackstart as a
+controller is preferred.

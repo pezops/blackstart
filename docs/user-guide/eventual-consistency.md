@@ -29,14 +29,13 @@ now available, and the workflow can make more progress.
 
 A workflow is considered "fully reconciled" when a run completes with every operation passing its
 `Check` step, and no `Set` operations are performed. At this point, the real-world infrastructure
-matches the state declared in your workflow.
+matches the state declared in the workflow.
 
 ## Example: Waiting for a Database Table
 
-A common use case is managing database permissions. Imagine your application's deployment process is
-responsible for creating its own database tables via a schema migration tool. Your Blackstart
-workflow is responsible for creating a service account and granting it permissions on one of those
-tables.
+A common use case is managing database permissions. An application's deployment process may be
+responsible for creating database tables via a schema migration tool. A Blackstart workflow can be
+responsible for creating a service account and granting it permissions on one of those tables.
 
 Consider this workflow snippet:
 
@@ -74,15 +73,15 @@ grant. The workflow will then be fully reconciled.
 ## Example: Waiting for an External Secret
 
 Another common scenario involves dependencies on resources created by other systems within a
-Kubernetes cluster. For instance, you might use a tool like cert-manager to automatically provision
-TLS certificates and store them as Kubernetes Secrets.
+Kubernetes cluster. For instance, a tool like cert-manager can automatically provision TLS
+certificates and store them as Kubernetes Secrets.
 
 A Blackstart workflow might be responsible for consuming this secret, for example, to configure a
 some other service to use TLS encryption.
 
 1.  **External System (cert-manager)**: A `Certificate` resource is created. Cert-manager sees this
     and generates a private key and certificate, storing them in a `Secret` named `my-app-tls`.
-2.  **Blackstart Workflow**: An operation in your workflow needs to read `my-app-tls` to configure a
+2.  **Blackstart Workflow**: An operation in a workflow needs to read `my-app-tls` to configure a
     component.
 
 When the Blackstart workflow runs, it's a race. If cert-manager has not yet created the `my-app-tls`
