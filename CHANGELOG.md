@@ -6,6 +6,10 @@
 
 - Cleanup Postgres module docs (#40) by @mbrancato
 
+### ⚙️ Miscellaneous Tasks
+
+- Fix Helm chart empty index publishing (#41) by @mbrancato
+
 ## [0.1.2] - 2026-03-21
 
 ### 🚀 Features
