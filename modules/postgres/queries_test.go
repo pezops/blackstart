@@ -48,6 +48,26 @@ func TestValidateIdentifier(t *testing.T) {
 			valid:      true,
 		},
 		{
+			name:       "valid_with_underscore",
+			identifier: "blackstart_grant_test_orders",
+			valid:      true,
+		},
+		{
+			name:       "valid_with_uppercase",
+			identifier: "BlackstartRole",
+			valid:      true,
+		},
+		{
+			name:       "invalid_first_character_digit",
+			identifier: "1public",
+			valid:      false,
+		},
+		{
+			name:       "invalid_with_hyphen",
+			identifier: "blackstart-role",
+			valid:      false,
+		},
+		{
 			name:       "invalid_identifier",
 			identifier: "public;",
 			valid:      false,
