@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### ⚙️ Miscellaneous Tasks
+
+- Prune missing helm chart versions on release (#35) by @mbrancato
+
 ## [0.1.1] - 2026-03-19
 
 ### 🚀 Features
