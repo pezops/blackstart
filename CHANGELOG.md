@@ -9,6 +9,7 @@
 ### 📚 Documentation
 
 - Add improved CloudSQL module example (#36) by @mbrancato
+- Minor documentation cleanup (#38) by @mbrancato
 
 ### ⚙️ Miscellaneous Tasks
 
