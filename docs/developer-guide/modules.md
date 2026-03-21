@@ -74,7 +74,7 @@ If the desired state is met, then the `Check` method must also set all outputs i
 
     - If the target state cannot be determined due to a transient read issue (timeout, rate limit,
       temporary API outage), return an **error** from `Check` instead of `false, nil`.
-    - Return `false, nil` only when you have positive evidence that the current state differs from
+    - Return `false, nil` only with positive evidence that the current state differs from
       the desired state.
     - Keep `Check` side-effect free. It should observe state and set outputs, not mutate resources.
 

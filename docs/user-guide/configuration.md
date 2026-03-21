@@ -23,7 +23,7 @@ Blackstart supports command-line flags and equivalent environment variables.
 | `--controller-resync-interval`   | `BLACKSTART_CONTROLLER_RESYNC_INTERVAL`   | How often controller mode refreshes workflow resources.                                   |
 | `--queue-wait-warning-threshold` | `BLACKSTART_QUEUE_WAIT_WARNING_THRESHOLD` | Warn when queued workflows wait longer than this threshold.                               |
 
-## Namespace Behavior
+### Namespace Behavior
 
 - Empty `BLACKSTART_K8S_NAMESPACE`: query all namespaces.
 - One namespace: query only that namespace.
@@ -31,7 +31,7 @@ Blackstart supports command-line flags and equivalent environment variables.
 
 ## Helm Values
 
-The chart supports these primary values:
+The Helm chart supports these values used to configure the Blackstart installation:
 
 | Key                                                                 | Default                            | Purpose                                                                                                         |
 | ------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -66,11 +66,11 @@ The chart supports these primary values:
 
 When installing with Helm, the chart installs the `Workflow` CRD automatically.
 
-If you install or update resources manually, install or upgrade the `Workflow` CRD before applying
-workflow resources:
+For manual installs or upgrades, install or upgrade the `Workflow` CRD before applying workflow
+resources:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/pezops/blackstart/<release-tag>/config/crd/v1alpha1/blackstart.pezops.github.io_workflows.yaml
 ```
 
-Replace `<release-tag>` with the release tag you are deploying.
+Replace `<release-tag>` with the release tag being deployed.

@@ -7,7 +7,7 @@ configuration, workflows, and secure runtime patterns.
 
 ## Guide Sections
 
-- [Getting Started](../getting-started.md): install quickly and run your first workflow.
+- [Getting Started](../getting-started.md): install quickly and run a first workflow.
 - [Deploy](./deploy.md): Helm and manifest deployment patterns.
 - [Configuration](./configuration.md): runtime settings, namespace behavior, and chart values.
 - [Workflows](./workflows.md): workflow model, operation syntax, and input/output wiring.
@@ -17,7 +17,7 @@ configuration, workflows, and secure runtime patterns.
 
 ## Module Documentation
 
-After you understand workflows, use [Modules](./modules/README.md) as the reference for
+After understanding workflows, use [Modules](./modules/README.md) as the reference for
 module-specific inputs, outputs, and examples.
 
 <div class="mkdocs-hidden">

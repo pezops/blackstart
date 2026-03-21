@@ -137,8 +137,8 @@ stateless, there are a couple concepts to understand:
    exists, that would mean existing permissions would be removed and replaced with what is
    configured in the operation for the module.
 2. Deleting an operation may orphan resources or settings. Blackstart provides a `doesNotExist` flag
-   to enable deletion of previously configured resources. For example, we can assume a database user
-   was created using a module. At a later time, the operation to create that user is removed from
-   the configuration, resulting in an orphaned user. To fix this, replace the create user operation
-   with an operation to delete the user. The idempotent state of a deleted user is simply a user
-   that does not exist.
+   to enable deletion of previously configured resources. For example, assume a database user was
+   created using a module. At a later time, the operation to create that user is removed from the
+   configuration, resulting in an orphaned user. To fix this, replace the create user operation with
+   an operation to delete the user. The idempotent state of a deleted user is simply a user that
+   does not exist.

@@ -9,7 +9,7 @@ This approach is simple, powerful, and designed for modern cloud-native environm
 ## The Basics
 
 A **Workflow** is composed of a partially ordered set of **Operations**. Each operation is a single
-unit of work (a single step) that uses a specific **Module** to manage a piece of infrastructure.
+unit of work that uses a specific **Module** to manage a piece of infrastructure.
 
 Here is a simple example of a workflow that creates a CloudSQL user, configures the instance to be
 managed, and then grants the user permissions on a database within that instance.
