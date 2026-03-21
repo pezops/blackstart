@@ -65,18 +65,24 @@ func validatePostgresIdentifier(id string) error {
 		return fmt.Errorf("identifier cannot be longer than 63 characters")
 	}
 
-	// check allowed characters
-	for _, c := range id {
-		if (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') ||
-			c == '-' ||
-			c == '$' {
-			// valid character
-			continue
-		} else {
-			return fmt.Errorf("invalid character in identifier: %c", c)
+	// Identifiers must start with a letter or underscore.
+	for i, c := range id {
+		if i == 0 {
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' {
+				continue
+			}
+			return fmt.Errorf("invalid first character in identifier: %c", c)
 		}
 
+		// Remaining characters can be letters, digits, underscore, or dollar sign.
+		if (c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') ||
+			c == '_' ||
+			c == '$' {
+			continue
+		}
+		return fmt.Errorf("invalid character in identifier: %c", c)
 	}
 	return nil
 }
