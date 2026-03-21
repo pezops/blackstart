@@ -78,13 +78,6 @@ If the desired state is met, then the `Check` method must also set all outputs i
       the desired state.
     - Keep `Check` side-effect free. It should observe state and set outputs, not mutate resources.
 
-    Why this matters:
-
-    - Returning `false, nil` on a temporary read failure can trigger `Set` even when the resource is
-      already correct.
-    - That can cause avoidable writes, duplicate actions, and non-idempotent behavior.
-
-    This pattern is still under review and may evolve.
 <!-- prettier-ignore-end -->
 
 ## Set

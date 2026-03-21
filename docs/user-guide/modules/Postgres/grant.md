@@ -23,10 +23,10 @@ No outputs are supported for this module
 
 ## Examples
 
-### grant Role membership
+### Grant Role membership
 
 ```yaml
-id: grant-Role-membership
+id: grant-role-membership
 module: postgres_grant
 inputs:
   connection:
@@ -37,10 +37,10 @@ inputs:
   Permission: my-other-Role
 ```
 
-### grant Schema usage
+### Grant Schema usage
 
 ```yaml
-id: grant-Schema-usage
+id: grant-schema-usage
 module: postgres_grant
 inputs:
   connection:

@@ -4,7 +4,7 @@ title: postgres_role
 
 # postgres_role
 
-Module to manage PostgreSQL roles.
+Module to manage PostgreSQL Roles.
 
 ## Inputs
 
@@ -26,7 +26,7 @@ No outputs are supported for this module
 ### Create a new Role
 
 ```yaml
-id: create-Role
+id: create-role
 module: postgres_role
 inputs:
   connection:

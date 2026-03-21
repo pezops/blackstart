@@ -175,7 +175,7 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 		},
 		Outputs: map[string]blackstart.OutputValue{},
 		Examples: map[string]string{
-			"grant Role membership": `id: grant-Role-membership
+			"Grant Role membership": `id: grant-role-membership
 module: postgres_grant
 inputs:
   connection:
@@ -184,7 +184,7 @@ inputs:
       output: connection
   Role: my-user
   Permission: my-other-Role`,
-			"grant Schema usage": `id: grant-Schema-usage
+			"Grant Schema usage": `id: grant-schema-usage
 module: postgres_grant
 inputs:
   connection:

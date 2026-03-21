@@ -53,7 +53,7 @@ func (r roleModule) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:          "postgres_role",
 		Name:        "PostgreSQL Role",
-		Description: "Module to manage PostgreSQL roles.",
+		Description: "Module to manage PostgreSQL Roles.",
 		Inputs: map[string]blackstart.InputValue{
 			inputName: {
 				Description: "Id of the Role to manage.",
@@ -88,7 +88,7 @@ func (r roleModule) Info() blackstart.ModuleInfo {
 		},
 		Outputs: map[string]blackstart.OutputValue{},
 		Examples: map[string]string{
-			"Create a new Role": `id: create-Role
+			"Create a new Role": `id: create-role
 module: postgres_role
 inputs:
   connection:
