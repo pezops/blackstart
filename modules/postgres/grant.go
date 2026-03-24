@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -40,6 +41,9 @@ var _ blackstart.Module = &grantModule{}
 var requiredGrantParameters = []string{inputRole, inputPermission, inputConnection}
 var grantSchemaPermissions = []string{"CREATE", "USAGE", "ALL"}
 var grantDatabasePermissions = []string{"CREATE", "CONNECT", "TEMPORARY", "TEMP", "ALL"}
+var grantTablePermissions = []string{
+	"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN", "ALL",
+}
 var requiredRoleParameters = []string{inputName}
 
 func NewPostgresGrant() blackstart.Module {
@@ -58,7 +62,7 @@ type grant struct {
 	// Schema is the name of a Postgres schema where the Permission is to be applied. Defaults to
 	// the "public" schema.
 	Schema string
-	// Resource is the name of the resource for the Permission to be applied. This might be a database
+	// Resource is the name of the database object for the Permission to be applied. This might be a database
 	// name, table name, or schema name.
 	Resource string
 	// Scope is the type of Resource where the Permission is to be applied. This might be a database,
@@ -66,70 +70,289 @@ type grant struct {
 	Scope string
 }
 
-// newGrant creates a new grant object from the module context inputs. It validates the inputs and
-// returns an error if any required inputs are missing or invalid.
-func newGrant(mctx blackstart.ModuleContext) (*grant, error) {
-	var err error
+// normalizeRequiredStringList trims required list values and rejects empty entries.
+func normalizeRequiredStringList(values []string, field string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for i, v := range values {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil, fmt.Errorf("input %q value[%d] cannot be empty", field, i)
+		}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("input %q must not be empty", field)
+	}
+	return out, nil
+}
 
-	target := &grant{}
-	target.Role, err = blackstart.ContextInputAs[string](mctx, inputRole, true)
+// normalizeOptionalStringList trims optional list values and collapses empty input to a single
+// empty marker so callers can handle unset optional dimensions uniformly.
+func normalizeOptionalStringList(values []string) []string {
+	if len(values) == 0 {
+		return []string{""}
+	}
+
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+// normalizeScopeTargets constrains schema/resource dimensions to the valid target model for each
+// scope and returns normalized schema/resource lists for expansion.
+func normalizeScopeTargets(
+	grantScope scope, schemas []string, resources []string,
+) ([]string, []string, error) {
+	switch grantScope {
+	case scopes.instance:
+		// INSTANCE grants model role membership only; schema/resource do not apply.
+		return []string{""}, []string{""}, nil
+	case scopes.database:
+		// DATABASE grants target database names using the resource field.
+		if len(resources) == 1 && resources[0] == "" {
+			return nil, nil, fmt.Errorf("input %q must be provided when scope is DATABASE", inputResource)
+		}
+		return []string{""}, resources, nil
+	case scopes.schema:
+		// SCHEMA scope targets a schema name. Accept either resource or schema input for backward
+		// compatibility, but normalize to Resource so Check/Set/Revoke use the same field.
+		if len(schemas) > 1 || (len(schemas) == 1 && schemas[0] != "") {
+			if len(resources) > 1 || (len(resources) == 1 && resources[0] != "") {
+				if len(schemas) != len(resources) {
+					return nil, nil, fmt.Errorf(
+						"inputs %q and %q must match for scope SCHEMA when both are set",
+						inputSchema, inputResource,
+					)
+				}
+				for i := range schemas {
+					if schemas[i] != resources[i] {
+						return nil, nil, fmt.Errorf(
+							"inputs %q and %q must match for scope SCHEMA when both are set",
+							inputSchema, inputResource,
+						)
+					}
+				}
+				return []string{""}, resources, nil
+			}
+			return []string{""}, schemas, nil
+		}
+		if len(resources) == 1 && resources[0] == "" {
+			return nil, nil, fmt.Errorf(
+				"one of %q or %q must be provided when scope is SCHEMA", inputSchema, inputResource,
+			)
+		}
+		return []string{""}, resources, nil
+	case scopes.table:
+		// TABLE grants target schema-qualified tables. Set the default schema to public when omitted.
+		if len(schemas) == 1 && schemas[0] == "" {
+			schemas = []string{"public"}
+		}
+		if len(resources) == 1 && resources[0] == "" {
+			return nil, nil, fmt.Errorf("input %q must be provided when scope is TABLE", inputResource)
+		}
+		return schemas, resources, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported scope: %s", grantScope)
+	}
+}
+
+// validateGrantRole validates a grant role identifier.
+func validateGrantRole(roleName string) error {
+	if roleErr := validatePostgresIdentifier(roleName); roleErr != nil {
+		return fmt.Errorf("invalid role %q: %w", roleName, roleErr)
+	}
+	return nil
+}
+
+// validateGrantPermission validates permission tokens for the selected grant scope.
+func validateGrantPermission(grantScope scope, permission string) error {
+	if strings.Contains(permission, ",") {
+		return fmt.Errorf(
+			"invalid permission %q for scope %s: comma-separated permissions are not supported", permission, grantScope,
+		)
+	}
+
+	perm := normalizeGrantPermissionToken(grantScope, permission)
+	switch grantScope {
+	case scopes.instance:
+		// INSTANCE scope models role membership: permission is the role being granted.
+		if permErr := validatePostgresIdentifier(perm); permErr != nil {
+			return fmt.Errorf("invalid permission %q for scope %s: %w", permission, grantScope, permErr)
+		}
+	case scopes.database:
+		if !slices.Contains(grantDatabasePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.schema:
+		if !slices.Contains(grantSchemaPermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.table:
+		if !slices.Contains(grantTablePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	default:
+		return fmt.Errorf("unsupported scope: %s", grantScope)
+	}
+	return nil
+}
+
+// normalizeGrantPermissionToken canonicalizes permission input for validation and SQL rendering.
+func normalizeGrantPermissionToken(grantScope scope, permission string) string {
+	trimmed := strings.TrimSpace(permission)
+	if grantScope == scopes.instance {
+		return trimmed
+	}
+	perm := strings.ToUpper(trimmed)
+	if perm == "ALL PRIVILEGES" {
+		return "ALL"
+	}
+	return perm
+}
+
+// validateGrantPrincipalAndPermission validates role and permission inputs for the selected scope.
+// This is used before SQL template rendering to prevent unsafe or unsupported values.
+func validateGrantPrincipalAndPermission(grantScope scope, roleName, permission string) error {
+	if err := validateGrantRole(roleName); err != nil {
+		return err
+	}
+	return validateGrantPermission(grantScope, permission)
+}
+
+// readOptionalStringListInput reads an optional string-or-[]string input from context and returns
+// whether the key was present.
+func readOptionalStringListInput(
+	mctx blackstart.ModuleContext, key string,
+) ([]string, bool, error) {
+	input, err := mctx.Input(key)
+	if err != nil {
+		if errors.Is(err, blackstart.ErrInputDoesNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if input == nil || !input.IsStatic() {
+		return nil, true, nil
+	}
+	values, err := blackstart.InputAs[[]string](input, false)
+	if err != nil {
+		return nil, true, err
+	}
+	return values, true, nil
+}
+
+// expandGrantsFromContext expands single or list-valued inputs into a list of all possible
+// grant targets.
+func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
+	rolesRaw, err := blackstart.ContextInputAs[[]string](mctx, inputRole, true)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := normalizeRequiredStringList(rolesRaw, inputRole)
 	if err != nil {
 		return nil, err
 	}
 
-	target.Permission, err = blackstart.ContextInputAs[string](mctx, inputPermission, true)
+	permissionsRaw, err := blackstart.ContextInputAs[[]string](mctx, inputPermission, true)
+	if err != nil {
+		return nil, err
+	}
+	permissions, err := normalizeRequiredStringList(permissionsRaw, inputPermission)
 	if err != nil {
 		return nil, err
 	}
 
-	if schema, schemaErr := blackstart.ContextInputAs[string](mctx, inputSchema, false); schemaErr == nil {
-		target.Schema = schema
+	var schemas []string
+	if values, present, schemaErr := readOptionalStringListInput(mctx, inputSchema); schemaErr != nil {
+		return nil, fmt.Errorf("input %q is invalid: %w", inputSchema, schemaErr)
+	} else if present {
+		schemas = normalizeOptionalStringList(values)
+	} else {
+		schemas = []string{""}
 	}
-	if target.Schema != "" {
-		err = validatePostgresIdentifier(target.Schema)
-		if err != nil {
-			return nil, err
+
+	var resources []string
+	if values, present, resourceErr := readOptionalStringListInput(mctx, inputResource); resourceErr != nil {
+		return nil, fmt.Errorf("input %q is invalid: %w", inputResource, resourceErr)
+	} else if present {
+		resources = normalizeOptionalStringList(values)
+	} else {
+		resources = []string{""}
+	}
+
+	scopeValue, err := blackstart.ContextInputAs[string](mctx, inputScope, false)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(scopeValue) == "" {
+		scopeValue = "instance"
+	}
+	normalizedScope, err := stringToScope(scopeValue)
+	if err != nil {
+		return nil, err
+	}
+	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources)
+	if err != nil {
+		return nil, err
+	}
+
+	targets := make([]*grant, 0, len(roles)*len(permissions)*len(schemas)*len(resources))
+	for _, roleName := range roles {
+		for _, permission := range permissions {
+			normalizedPermission := normalizeGrantPermissionToken(normalizedScope, permission)
+			if validationErr := validateGrantPrincipalAndPermission(
+				normalizedScope, roleName, permission,
+			); validationErr != nil {
+				return nil, validationErr
+			}
+			for _, schema := range schemas {
+				if schema != "" {
+					if schemaErr := validatePostgresIdentifier(schema); schemaErr != nil {
+						return nil, schemaErr
+					}
+				}
+				for _, resource := range resources {
+					if resource != "" {
+						if resourceErr := validatePostgresIdentifier(resource); resourceErr != nil {
+							return nil, resourceErr
+						}
+					}
+					targets = append(
+						targets, &grant{
+							Role:       roleName,
+							Permission: normalizedPermission,
+							Schema:     schema,
+							Resource:   resource,
+							Scope:      string(normalizedScope),
+						},
+					)
+				}
+			}
 		}
 	}
-
-	if resource, resourceErr := blackstart.ContextInputAs[string](mctx, inputResource, false); resourceErr == nil {
-		target.Resource = resource
-	}
-	if target.Resource != "" {
-		err = validatePostgresIdentifier(target.Resource)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if scope, scopeErr := blackstart.ContextInputAs[string](mctx, inputScope, false); scopeErr == nil {
-		target.Scope = scope
-	}
-
-	if target.Scope == "" {
-		target.Scope = "instance"
-	}
-
-	var s scope
-	s, err = stringToScope(target.Scope)
-	if err != nil {
-		return nil, err
-	}
-	target.Scope = string(s)
-
-	return target, nil
+	return targets, nil
 }
 
 type grantModule struct {
-	db     *sql.DB
-	target *grant
+	db *sql.DB
 }
 
 func (g *grantModule) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
-		Id:          "postgres_grant",
-		Name:        "PostgreSQL grant",
-		Description: "Ensures that a Postgres Role has the specified Permission on a Resource.",
+		Id:   "postgres_grant",
+		Name: "PostgreSQL grant",
+		Description: "Ensures that a Postgres role has the specified Permission on a resource.\n\n" +
+			"If multiple values are provided for `role`, `permission`, `schema`, or `resource`, " +
+			"Blackstart expands all possible combinations of the Operation and applies them all.",
 		Inputs: map[string]blackstart.InputValue{
 			inputConnection: {
 				Description: "database connection to the managed Postgres instance.",
@@ -137,76 +360,194 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 				Required:    true,
 			},
 			inputRole: {
-				Description: "Role or username that will have the grant assigned.",
-				Type:        reflect.TypeFor[string](),
+				Description: "Role(s) or username(s) that will have the grant assigned.",
+				Types:       []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[[]string]()},
 				Required:    true,
 			},
 			inputPermission: {
-				Description: "Permission or Role to be assigned to the Role. Depending on the Resource Scope, the valid permissions may vary.",
-				Type:        reflect.TypeFor[string](),
+				Description: "Permission(s) or role membership(s) to be assigned to the role(s). Depending on the resource scope, the valid permissions may vary.",
+				Types:       []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[[]string]()},
 				Required:    true,
 			},
 			inputSchema: {
-				Description: "Id of a Postgres Schema where the Permission is to be applied.",
-				Type:        reflect.TypeFor[string](),
+				Description: "Schema(s) where the permission is to be applied.",
+				Types:       []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[[]string]()},
 				Required:    false,
 			},
 			inputResource: {
-				Description: "Id of the Resource for the Permission to be applied. This might be a database Name, table Name, or Schema Name.",
-				Type:        reflect.TypeFor[string](),
+				Description: "Resource(s) where the permission(s) are to be applied. This might be a database name, table name, or schema name.",
+				Types:       []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[[]string]()},
 				Required:    false,
 			},
 			inputScope: {
-				Description: "Scope of the Resource where the Permission is to be applied. This might be a database, table, or Schema.",
+				Description: "Scope of the resource where the permission is to be applied. This might be a database, table, or schema.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 		},
 		Outputs: map[string]blackstart.OutputValue{},
 		Examples: map[string]string{
-			"Grant Role membership": `id: grant-role-membership
+			"Grant role membership": `id: grant-role-membership
 module: postgres_grant
 inputs:
   connection:
     fromDependency:
       id: manage-instance
       output: connection
-  Role: my-user
-  Permission: my-other-Role`,
-			"Grant Schema usage": `id: grant-schema-usage
+  role: my-user
+  permission: my-other-role`,
+			"Grant schema usage": `id: grant-schema-usage
 module: postgres_grant
 inputs:
   connection:
     fromDependency:
       id: manage-instance
       output: connection
-  Role: my-user
-  Permission: USAGE
-  Scope: SCHEMA
-  Resource: my-Schema`,
+  role: my-user
+  permission: USAGE
+  scope: SCHEMA
+  resource: my-schema`,
+			"Grant role membership at the instance level": `id: grant-instance-role-membership
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: my-user
+  permission: app_readers
+  scope: INSTANCE`,
+			"Grant table permissions": `id: grant-orders-table-permissions
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: reporting_user
+  permission:
+    - SELECT
+    - UPDATE
+  scope: TABLE
+  schema: public
+  resource: orders`,
+			"Grant schema permission to multiple roles": `id: grant-schema-usage-to-team
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role:
+    - app_user
+    - reporting_user
+  permission: USAGE
+  scope: SCHEMA
+  resource: analytics`,
+			"Grant multiple schema permissions for one user": `id: grant-user-schema-permissions
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission:
+    - USAGE
+    - CREATE
+  scope: SCHEMA
+  resource: app_data`,
+			"Grant across multiple resources": `id: grant-multi-resource-permissions
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role:
+    - app_user
+    - reporting_user
+  permission:
+    - SELECT
+    - UPDATE
+  scope: TABLE
+  schema:
+    - public
+    - analytics
+  resource:
+    - orders
+    - invoices`,
 		},
 	}
 }
 
 func (g *grantModule) Validate(op blackstart.Operation) error {
 	for _, p := range requiredGrantParameters {
-		if o, ok := op.Inputs[p]; !ok {
+		if _, ok := op.Inputs[p]; !ok {
 			return fmt.Errorf("missing required parameter: %s", p)
-		} else {
-			if !o.IsStatic() {
+		}
+	}
+
+	if connInput, ok := op.Inputs[inputConnection]; ok && connInput.IsStatic() && connInput.Any() == nil {
+		return fmt.Errorf("missing required parameter: %s", inputConnection)
+	}
+
+	scopeValue := "instance"
+	if scopeInput, ok := op.Inputs[inputScope]; ok && scopeInput.IsStatic() {
+		parsedScope, err := blackstart.InputAs[string](scopeInput, false)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
+		}
+		if strings.TrimSpace(parsedScope) != "" {
+			scopeValue = parsedScope
+		}
+	}
+	grantScope, err := stringToScope(scopeValue)
+	if err != nil {
+		return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
+	}
+
+	rolesInput := op.Inputs[inputRole]
+	if rolesInput.IsStatic() {
+		roles, rolesErr := blackstart.InputAs[[]string](rolesInput, true)
+		if rolesErr != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputRole, rolesErr)
+		}
+		for _, role := range roles {
+			if validationErr := validateGrantRole(role); validationErr != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", inputRole, validationErr)
+			}
+		}
+	}
+
+	permissionsInput := op.Inputs[inputPermission]
+	if permissionsInput.IsStatic() {
+		permissions, permissionErr := blackstart.InputAs[[]string](permissionsInput, true)
+		if permissionErr != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputPermission, permissionErr)
+		}
+		for _, permission := range permissions {
+			if validationErr := validateGrantPermission(grantScope, permission); validationErr != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", inputPermission, validationErr)
+			}
+		}
+	}
+
+	for _, p := range []string{inputSchema, inputResource} {
+		o, ok := op.Inputs[p]
+		if !ok || !o.IsStatic() {
+			continue
+		}
+		values, valuesErr := blackstart.InputAs[[]string](o, false)
+		if valuesErr != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", p, valuesErr)
+		}
+		for _, v := range values {
+			if strings.TrimSpace(v) == "" {
 				continue
 			}
-			v := o.Any()
-			switch x := v.(type) {
-			case string:
-				if x == "" {
-					return fmt.Errorf("parameter %s cannot be empty", p)
-				}
-			default:
-				if x == nil {
-					return fmt.Errorf("parameter %s cannot be nil", p)
-				}
-
+			if idErr := validatePostgresIdentifier(v); idErr != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", p, idErr)
 			}
 		}
 	}
@@ -215,82 +556,73 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 }
 
 func (g *grantModule) Check(ctx blackstart.ModuleContext) (bool, error) {
-	var err error
-	err = g.setup(ctx)
+	if err := g.setup(ctx); err != nil {
+		return false, err
+	}
+
+	targets, err := expandGrantsFromContext(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	g.target, err = newGrant(ctx)
-	if err != nil {
-		return false, err
+	for _, target := range targets {
+		query, queryParams, queryErr := getGrantExistsQuery(target)
+		if queryErr != nil {
+			return false, fmt.Errorf("error getting grant query: %w", queryErr)
+		}
+
+		var exists bool
+		err = g.db.QueryRowContext(ctx, query, queryParams...).Scan(&exists)
+		if err != nil {
+			return false, fmt.Errorf("error checking grant: %w", err)
+		}
+
+		if ctx.DoesNotExist() {
+			if exists {
+				return false, nil
+			}
+			continue
+		}
+		if !exists {
+			return false, nil
+		}
 	}
 
-	// Check for required runtime params
-	ok, err := checkGrantRuntimeParams(ctx)
-	if !ok {
-		return false, err
-	}
-
-	query, queryParams, err := getGrantExistsQuery(g.target)
-	if err != nil {
-		return false, fmt.Errorf("error getting grant query: %w", err)
-	}
-
-	// Execute the query
-	var exists bool
-	err = g.db.QueryRowContext(ctx, query, queryParams...).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("error checking grant: %w", err)
-	}
-
-	// Capture the result
-	if ctx.DoesNotExist() {
-		return !exists, nil
-	}
-	return exists, nil
+	return true, nil
 }
 
 func (g *grantModule) Set(ctx blackstart.ModuleContext) error {
-	var err error
-	err = g.setup(ctx)
+	if err := g.setup(ctx); err != nil {
+		return err
+	}
+
+	targets, err := expandGrantsFromContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	// Check for required runtime params
-	ok, err := checkGrantRuntimeParams(ctx)
-	if !ok {
-		return err
-	}
+	for _, target := range targets {
+		if ctx.DoesNotExist() {
+			query, queryParams, revokeErr := getGrantRevokeQuery(target)
+			if revokeErr != nil {
+				return fmt.Errorf("error getting revoke query: %w", revokeErr)
+			}
+			_, err = g.db.ExecContext(ctx, query, queryParams...)
+			if err != nil {
+				return fmt.Errorf("error revoking grant: %w", err)
+			}
+			continue
+		}
 
-	g.target, err = newGrant(ctx)
-	if err != nil {
-		return err
-	}
+		query, queryParams, queryErr := getGrantSetQuery(target)
+		if queryErr != nil {
+			return fmt.Errorf("error getting grant query: %w", queryErr)
+		}
 
-	if ctx.DoesNotExist() {
-		// If the does not exist flag is set, the Check() has determined the grant exists and
-		// should be deleted.
-		query, queryParams := getGrantRevokeQuery(g.target)
-
-		// Execute the query
 		_, err = g.db.ExecContext(ctx, query, queryParams...)
 		if err != nil {
-			return fmt.Errorf("error revoking grant: %w", err)
+			return fmt.Errorf("error setting grant: %w", err)
 		}
-		return nil
-	}
-
-	query, queryParams, err := getGrantSetQuery(g.target)
-	if err != nil {
-		return fmt.Errorf("error getting grant query: %w", err)
-	}
-
-	// Execute the query
-	_, err = g.db.ExecContext(ctx, query, queryParams...)
-	if err != nil {
-		return fmt.Errorf("error setting grant: %w", err)
 	}
 
 	return nil
@@ -321,16 +653,34 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 
 	switch grantScope {
 	case scopes.instance:
-		queryParams := []interface{}{target.Permission, target.Role}
+		queryParams := []interface{}{normalizeGrantPermissionToken(grantScope, target.Permission), target.Role}
 		return getGrantInstanceQuery, queryParams, nil
 	case scopes.database:
-		queryParams := []interface{}{target.Permission, target.Role, target.Resource}
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			queryParams := []interface{}{target.Role, target.Resource}
+			return getGrantDatabaseAllQuery, queryParams, nil
+		}
+		queryParams := []interface{}{target.Role, normalizeGrantPermissionToken(
+			grantScope, target.Permission,
+		), target.Resource}
 		return getGrantDatabaseQuery, queryParams, nil
 	case scopes.schema:
-		queryParams := []interface{}{target.Permission, target.Role, target.Schema}
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			queryParams := []interface{}{target.Role, target.Resource}
+			return getGrantSchemaAllQuery, queryParams, nil
+		}
+		queryParams := []interface{}{normalizeGrantPermissionToken(
+			grantScope, target.Permission,
+		), target.Role, target.Resource}
 		return getGrantSchemaQuery, queryParams, nil
 	case scopes.table:
-		queryParams := []interface{}{target.Permission, target.Role, target.Resource, target.Schema}
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			queryParams := []interface{}{target.Role, target.Schema, target.Resource}
+			return getGrantTableAllQuery, queryParams, nil
+		}
+		queryParams := []interface{}{normalizeGrantPermissionToken(
+			grantScope, target.Permission,
+		), target.Role, target.Resource, target.Schema}
 		return getGrantTableQuery, queryParams, nil
 	default:
 		return "", nil, fmt.Errorf("no query for Scope: %s", target.Scope)
@@ -360,7 +710,9 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 		return "", nil, err
 	}
 
-	perm := strings.ToUpper(target.Permission)
+	normalizedTarget := *target
+	normalizedTarget.Permission = normalizeGrantPermissionToken(grantScope, target.Permission)
+	perm := normalizedTarget.Permission
 	var tmpl *template.Template
 
 	switch grantScope {
@@ -377,6 +729,9 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 		}
 		tmpl, err = template.New("setGrantSchema").Parse(setGrantSchemaTemplate)
 	case scopes.table:
+		if !slices.Contains(grantTablePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid table Permission: %s", target.Permission)
+		}
 		tmpl, err = template.New("setGrantTable").Parse(setGrantTableTemplate)
 	default:
 		return "", nil, fmt.Errorf("no query for Scope: %s", target.Scope)
@@ -387,7 +742,7 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 	}
 
 	var queryBuffer bytes.Buffer
-	err = tmpl.Execute(&queryBuffer, target)
+	err = tmpl.Execute(&queryBuffer, &normalizedTarget)
 	if err != nil {
 		return "", nil, err
 	}
@@ -399,53 +754,47 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 // Scope. It returns the query string and query parameters.
 //
 // goland:noinspection SqlNoDataSourceInspection
-func getGrantRevokeQuery(target *grant) (string, []interface{}) {
-	// Construct the SQL query
-
-	switch target.Scope {
-	case "instance":
-		query := `
-    REVOKE $1 FROM $2;
-    `
-		queryParams := []interface{}{target.Permission, target.Role}
-		return query, queryParams
-	case "database":
-		query := `
-    REVOKE $1 FROM $2 IN DATABASE $3;
-    `
-		queryParams := []interface{}{target.Permission, target.Role, target.Resource}
-		return query, queryParams
-	case "schema":
-		query := `
-    REVOKE $1 FROM $2 IN SCHEMA $3;
-    `
-		queryParams := []interface{}{target.Permission, target.Role, target.Resource}
-		return query, queryParams
-	case "table":
-		query := `
-    REVOKE $1 FROM $2 ON TABLE $3;
-    `
-		queryParams := []interface{}{target.Permission, target.Role, target.Resource}
-		return query, queryParams
-	}
-	return "", nil
-}
-
-// checkGrantRuntimeParams checks that all required runtime parameters are present and valid. It also
-// verifies that the database connection is of the correct type.
-func checkGrantRuntimeParams(ctx blackstart.ModuleContext) (bool, error) {
-	_, err := blackstart.ContextInputAs[string](ctx, inputRole, true)
+func getGrantRevokeQuery(target *grant) (string, []interface{}, error) {
+	grantScope, err := stringToScope(target.Scope)
 	if err != nil {
-		return false, err
-	}
-	_, err = blackstart.ContextInputAs[string](ctx, inputPermission, true)
-	if err != nil {
-		return false, err
-	}
-	_, err = blackstart.ContextInputAs[*sql.DB](ctx, inputConnection, true)
-	if err != nil {
-		return false, err
+		return "", nil, err
 	}
 
-	return true, nil
+	normalizedTarget := *target
+	normalizedTarget.Permission = normalizeGrantPermissionToken(grantScope, target.Permission)
+	perm := normalizedTarget.Permission
+	var tmpl *template.Template
+	switch grantScope {
+	case scopes.instance:
+		tmpl, err = template.New("revokeGrantInstance").Parse(setRevokeInstanceTemplate)
+	case scopes.database:
+		if !slices.Contains(grantDatabasePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid database Permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantDatabase").Parse(setRevokeDatabaseTemplate)
+	case scopes.schema:
+		if !slices.Contains(grantSchemaPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid Schema Permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantSchema").Parse(setRevokeSchemaTemplate)
+	case scopes.table:
+		if !slices.Contains(grantTablePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid table Permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantTable").Parse(setRevokeTableTemplate)
+	default:
+		return "", nil, fmt.Errorf("no revoke query for Scope: %s", target.Scope)
+	}
+
+	if err != nil {
+		return "", nil, err
+	}
+
+	var queryBuffer bytes.Buffer
+	err = tmpl.Execute(&queryBuffer, &normalizedTarget)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return queryBuffer.String(), nil, nil
 }
