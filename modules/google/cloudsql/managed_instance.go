@@ -79,13 +79,19 @@ usable for further operations.
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
+			inputDatabase: {
+				Description: "Database name to connect to and return in the managed connection.",
+				Type:        reflect.TypeFor[string](),
+				Required:    false,
+				Default:     "postgres",
+			},
 			inputUser: {
 				Description: "The user to manage. If not provided, the current user will be used.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputConnectionType: {
-				Description: "Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`. Defaults to `PRIVATE_IP`.",
+				Description: "Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
 				Default:     "PRIVATE_IP",
@@ -198,13 +204,6 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 		return false, fmt.Errorf("failed to open database connection: %w", err)
 	}
-
-	//// Connect to the instance and run a query to check if the current user is a member of the
-	//// cloudsqladmin role.
-	//conn, err := cloudSQLConnection(m.target.instance, m.target.project, "postgres")
-	//if err != nil {
-	//	return false, fmt.Errorf("unable to connect to CloudSQL instance: %w", err)
-	//}
 
 	isAdmin, err := checkIfSuperuser(ctx, db)
 	if err != nil {
@@ -349,6 +348,15 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 		return fmt.Errorf("instance ID cannot be empty")
 	}
 
+	database, err := blackstart.ContextInputAs[string](ctx, inputDatabase, false)
+	if err != nil && !errors.Is(err, blackstart.ErrInputDoesNotExist) {
+		return err
+	}
+	if database == "" {
+		database = "postgres"
+	}
+	m.target.database = database
+
 	username, err := blackstart.ContextInputAs[string](ctx, inputUser, false)
 	if err != nil && !errors.Is(err, blackstart.ErrInputDoesNotExist) {
 		return err
@@ -385,7 +393,7 @@ func (m *managedInstance) getConnection(ctx blackstart.ModuleContext) (*sql.DB, 
 		return nil, fmt.Errorf("failed to find the current user: %w", err)
 	}
 
-	dsn := cloudsqlPostgresIamDsn(dbConnIdentifier, "postgres", username)
+	dsn := cloudsqlPostgresIamDsn(dbConnIdentifier, m.target.database, username)
 
 	driver, err := m.getDriver(ctx)
 	if err != nil {
@@ -446,6 +454,8 @@ func (m *managedInstance) getBuiltinDriver(ctx blackstart.ModuleContext) (string
 // operations. Google CloudSQL grants built-in users (non-IAM) the `cloudsqlsuperuser` role,
 // but IAM users must be explicitly granted the role.
 func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, func() error, error) {
+	const adminDb = "postgres"
+	const adminUser = "blackstart"
 	closer := func() error { return nil }
 
 	tempPass := util.RandomPassword(22)
@@ -455,8 +465,8 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 			inputInstance: blackstart.NewInputFromValue(m.target.instance),
 			inputRegion:   blackstart.NewInputFromValue(m.target.region),
 			inputProject:  blackstart.NewInputFromValue(m.target.project),
-			inputDatabase: blackstart.NewInputFromValue("postgres"),
-			inputUser:     blackstart.NewInputFromValue("blackstart"),
+			inputDatabase: blackstart.NewInputFromValue(adminDb),
+			inputUser:     blackstart.NewInputFromValue(adminUser),
 			inputPassword: blackstart.NewInputFromValue(tempPass),
 		},
 		Id:     "temp-user",
@@ -474,7 +484,7 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 	if err != nil {
 		return nil, closer, fmt.Errorf("failed to get temporary connection identifier: %w", err)
 	}
-	tempConnDsn := cloudsqlPostgresBuiltInDsn(tempInstanceIndentifier, "postgres", "blackstart", tempPass)
+	tempConnDsn := cloudsqlPostgresBuiltInDsn(tempInstanceIndentifier, adminDb, adminUser, tempPass)
 
 	driver, err := m.getBuiltinDriver(ctx)
 	if err != nil {
