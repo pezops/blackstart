@@ -1,11 +1,13 @@
 package blackstart
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,23 +34,23 @@ func (t testModule) Info() ModuleInfo {
 		Inputs: map[string]InputValue{
 			testCheckResult: {
 				Description: "Should the module check result",
-				Type:        reflect.TypeOf(true),
+				Type:        reflect.TypeFor[bool](),
 				Required:    true,
 			},
 			testCheckError: {
 				Description: "Should the module return an error on check",
-				Type:        reflect.TypeOf(true),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 				Default:     false,
 			},
 			testSetResult: {
 				Description: "Should the module set result",
-				Type:        reflect.TypeOf(true),
+				Type:        reflect.TypeFor[bool](),
 				Required:    true,
 			},
 			testSetError: {
 				Description: "Should the module return an error on set",
-				Type:        reflect.TypeOf(true),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 				Default:     false,
 			},
@@ -56,7 +58,7 @@ func (t testModule) Info() ModuleInfo {
 		Outputs: map[string]OutputValue{
 			"result": {
 				Description: "The result of the module operation",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 			},
 		},
 	}
@@ -77,7 +79,10 @@ func (t testModule) Check(mctx ModuleContext) (bool, error) {
 		return false, err
 	}
 
-	res := cr.Bool()
+	res, err := InputAs[bool](cr, true)
+	if err != nil {
+		return false, err
+	}
 	if res == true {
 		var sr Input
 		var setRes bool
@@ -86,7 +91,10 @@ func (t testModule) Check(mctx ModuleContext) (bool, error) {
 			// if the input doesn't exist, set the default result for Set() to true.
 			setRes = true
 		} else {
-			setRes = sr.Bool()
+			setRes, err = InputAs[bool](sr, true)
+			if err != nil {
+				return false, err
+			}
 		}
 
 		err = mctx.Output(testSetResult, setRes)
@@ -98,16 +106,16 @@ func (t testModule) Check(mctx ModuleContext) (bool, error) {
 	var input Input
 	for i := 0; i < 10; i++ {
 		input, err = mctx.Input(fmt.Sprintf("input_%d", i))
-		// if the input doesn't exist, break the loop, but clear the error.
 		if err != nil {
-			err = nil
-			break
-		}
-		var val any
-		val, err = input.Auto()
-		if err != nil {
+			if errors.Is(err, ErrInputDoesNotExist) {
+				break
+			}
 			return false, err
 		}
+		if input == nil {
+			break
+		}
+		val := input.Any()
 		if val == "foo" {
 			err = mctx.Output(fmt.Sprintf("output_%d", i), "bar")
 			if err != nil {
@@ -121,7 +129,11 @@ func (t testModule) Check(mctx ModuleContext) (bool, error) {
 		}
 	}
 
-	if ce.Bool() {
+	checkErr, err := InputAs[bool](ce, true)
+	if err != nil {
+		return false, err
+	}
+	if checkErr {
 		err = fmt.Errorf("test error on check")
 	}
 
@@ -140,7 +152,10 @@ func (t testModule) Set(mctx ModuleContext) error {
 		return err
 	}
 
-	res = sr.Bool()
+	res, err = InputAs[bool](sr, true)
+	if err != nil {
+		return err
+	}
 	err = mctx.Output(testSetResult, res)
 	if err != nil {
 		return err
@@ -149,16 +164,16 @@ func (t testModule) Set(mctx ModuleContext) error {
 	var input Input
 	for i := 0; i < 10; i++ {
 		input, err = mctx.Input(fmt.Sprintf("input_%d", i))
-		// if the input doesn't exist, break the loop, but clear the error.
 		if err != nil {
-			err = nil
-			break
-		}
-		var val any
-		val, err = input.Auto()
-		if err != nil {
+			if errors.Is(err, ErrInputDoesNotExist) {
+				break
+			}
 			return err
 		}
+		if input == nil {
+			break
+		}
+		val := input.Any()
 		if val == "foo" {
 			err = mctx.Output(fmt.Sprintf("output_%d", i), "bar")
 			if err != nil {
@@ -172,7 +187,11 @@ func (t testModule) Set(mctx ModuleContext) error {
 		}
 	}
 
-	if se.Bool() {
+	setErr, err := InputAs[bool](se, true)
+	if err != nil {
+		return err
+	}
+	if setErr {
 		err = fmt.Errorf("test error on set")
 	}
 
@@ -213,4 +232,66 @@ output: bar
 			},
 		)
 	}
+}
+
+func TestValidateModuleInfo_RejectsTypeAndTypesTogether(t *testing.T) {
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Type:  reflect.TypeFor[bool](),
+				Types: []reflect.Type{reflect.TypeFor[bool]()},
+			},
+		},
+	}
+
+	err := validateModuleInfo(info)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "defines both Type and Types")
+}
+
+func TestValidateModuleInfo_RejectsNilOnlyTypes(t *testing.T) {
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Types: []reflect.Type{nil, nil},
+			},
+		},
+	}
+
+	err := validateModuleInfo(info)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "all entries are nil")
+}
+
+type invalidModuleForRegistration struct{}
+
+func (invalidModuleForRegistration) Info() ModuleInfo {
+	return ModuleInfo{
+		Id: "invalid_module_for_registration",
+		Inputs: map[string]InputValue{
+			"value": {
+				Type:  reflect.TypeFor[bool](),
+				Types: []reflect.Type{reflect.TypeFor[string]()},
+			},
+		},
+	}
+}
+
+func (invalidModuleForRegistration) Validate(Operation) error { return nil }
+func (invalidModuleForRegistration) Check(ModuleContext) (bool, error) {
+	return true, nil
+}
+func (invalidModuleForRegistration) Set(ModuleContext) error { return nil }
+
+func TestRegisterModule_PanicsForInvalidInputSchema(t *testing.T) {
+	require.PanicsWithError(
+		t,
+		`invalid module registration "invalid_module_registration_test": input "value" defines both Type and Types; set only one`,
+		func() {
+			RegisterModule(
+				"invalid_module_registration_test",
+				func() Module { return invalidModuleForRegistration{} },
+			)
+		},
+	)
 }

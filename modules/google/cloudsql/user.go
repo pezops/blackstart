@@ -47,34 +47,34 @@ func (c *user) Info() blackstart.ModuleInfo {
 		Inputs: map[string]blackstart.InputValue{
 			inputInstance: {
 				Description: "CloudSQL instance ID.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputProject: {
 				Description: "Google Cloud project ID. If not provided, the current project will be used.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputRegion: {
 				Description: "Google Cloud region for the CloudSQL instance. If not provided, the region will be inferred from the instance ID.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputUser: {
 				Description: "username for the CloudSQL user.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputUserType: {
 				Description: "Type of the user to create. Must be one of: `CLOUD_IAM_USER`, `CLOUD_IAM_SERVICE_ACCOUNT`.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 		},
 		Outputs: map[string]blackstart.OutputValue{
 			outputUser: {
 				Description: "The name of the CloudSQL user that was created or managed.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 			},
 		},
 		Examples: map[string]string{
@@ -96,7 +96,14 @@ func (c *user) Validate(op blackstart.Operation) error {
 	}
 
 	userTypeInput := op.Inputs[inputUserType]
-	userType := strings.ToUpper(userTypeInput.String())
+	if !userTypeInput.IsStatic() {
+		return nil
+	}
+	userTypeValue, err := blackstart.InputAs[string](userTypeInput, true)
+	if err != nil {
+		return fmt.Errorf("invalid user_type: %w", err)
+	}
+	userType := strings.ToUpper(userTypeValue)
 	if !slices.Contains([]string{userCloudIamUser, userCloudIamServiceAccount}, userType) {
 		if userType == userBuiltIn {
 			return fmt.Errorf("user cannot be a built-in user for security purposes - use an IAM service account instead")
@@ -323,43 +330,43 @@ func cloudSqlUserExists(usersList *sqladmin.UsersListResponse, targetUser string
 func createTargetConnectionConfig(mctx blackstart.ModuleContext) (*connectionConfig, error) {
 	target := connectionConfig{}
 
-	u, err := mctx.Input(inputUser)
+	u, err := blackstart.ContextInputAs[string](mctx, inputUser, true)
 	if err != nil {
 		return nil, err
 	}
-	target.user = u.String()
+	target.user = u
 	if target.user == "" {
 		return nil, fmt.Errorf("user cannot be empty")
 	}
 
-	userType, err := mctx.Input(inputUserType)
+	userType, err := blackstart.ContextInputAs[string](mctx, inputUserType, true)
 	if err != nil {
 		return nil, err
 	}
-	target.userType = userType.String()
+	target.userType = userType
 
 	// password is not user for IAM or service account users
-	if userType.String() == userBuiltIn {
-		var password blackstart.Input
-		password, err = mctx.Input(inputPassword)
+	if userType == userBuiltIn {
+		var password string
+		password, err = blackstart.ContextInputAs[string](mctx, inputPassword, true)
 		if err != nil {
 			return nil, err
 		}
-		target.password = password.String()
+		target.password = password
 	}
 
-	instance, err := mctx.Input(inputInstance)
+	instance, err := blackstart.ContextInputAs[string](mctx, inputInstance, true)
 	if err != nil {
 		return nil, err
 	}
-	target.instance = instance.String()
+	target.instance = instance
 	if target.instance == "" {
 		return nil, fmt.Errorf("instance cannot be empty")
 	}
 
-	project, err := mctx.Input(inputProject)
+	project, err := blackstart.ContextInputAs[string](mctx, inputProject, false)
 	if err == nil {
-		target.project = project.String()
+		target.project = project
 	}
 	if target.project == "" {
 		var creds *google.Credentials
@@ -372,9 +379,9 @@ func createTargetConnectionConfig(mctx blackstart.ModuleContext) (*connectionCon
 		}
 	}
 
-	region, err := mctx.Input(inputRegion)
+	region, err := blackstart.ContextInputAs[string](mctx, inputRegion, false)
 	if err == nil {
-		target.region = region.String()
+		target.region = region
 	}
 
 	return &target, nil

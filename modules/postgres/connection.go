@@ -51,35 +51,35 @@ func (c *connectionModule) Info() blackstart.ModuleInfo {
 		Inputs: map[string]blackstart.InputValue{
 			inputHost: {
 				Description: "Hostname or IP address of the PostgreSQL server.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 				Default:     "localhost",
 			},
 			inputPort: {
 				Description: "port number of the PostgreSQL server.",
-				Type:        reflect.TypeOf(0),
+				Type:        reflect.TypeFor[int](),
 				Required:    false,
 				Default:     5432,
 			},
 			inputDatabase: {
 				Description: "Name of the PostgreSQL database to connect to.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 				Default:     "postgres",
 			},
 			inputUsername: {
 				Description: "username to connect to the PostgreSQL database.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputPassword: {
 				Description: "password to connect to the PostgreSQL database.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputSslMode: {
 				Description: "SSL mode to use when connecting to the PostgreSQL database. Options are 'disable', 'prefer', 'require', 'verify-ca', 'verify-full'.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 				Default:     "prefer",
 			},
@@ -87,7 +87,7 @@ func (c *connectionModule) Info() blackstart.ModuleInfo {
 		Outputs: map[string]blackstart.OutputValue{
 			outputConnection: {
 				Description: "The connection details to the PostgreSQL database.",
-				Type:        reflect.TypeOf(&sql.DB{}),
+				Type:        reflect.TypeFor[*sql.DB](),
 			},
 		},
 		Examples: map[string]string{
@@ -110,8 +110,9 @@ func (c *connectionModule) Validate(op blackstart.Operation) error {
 			if !o.IsStatic() {
 				continue
 			}
-			if o.String() == "" {
-				return fmt.Errorf("parameter %s cannot be empty", p)
+			_, err := blackstart.InputAs[string](o, true)
+			if err != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", p, err)
 			}
 		}
 	}
@@ -152,43 +153,43 @@ func (c *connectionModule) Set(ctx blackstart.ModuleContext) error {
 
 // createTargetConnection creates the target connection from the module context inputs.
 func (c *connectionModule) createTargetConnection(ctx blackstart.ModuleContext) error {
-	host, err := ctx.Input(inputHost)
+	host, err := blackstart.ContextInputAs[string](ctx, inputHost, true)
 	if err != nil {
 		return err
 	}
 
-	port, err := ctx.Input(inputPort)
+	port, err := blackstart.ContextInputAs[int64](ctx, inputPort, true)
 	if err != nil {
 		return err
 	}
 
-	database, err := ctx.Input(inputDatabase)
+	database, err := blackstart.ContextInputAs[string](ctx, inputDatabase, true)
 	if err != nil {
 		return err
 	}
 
-	username, err := ctx.Input(inputUsername)
+	username, err := blackstart.ContextInputAs[string](ctx, inputUsername, true)
 	if err != nil {
 		return err
 	}
 
-	password, err := ctx.Input(inputPassword)
+	password, err := blackstart.ContextInputAs[string](ctx, inputPassword, false)
 	if err != nil {
 		return err
 	}
 
-	sslmode, err := ctx.Input(inputSslMode)
+	sslmode, err := blackstart.ContextInputAs[string](ctx, inputSslMode, true)
 	if err != nil {
 		return err
 	}
 
 	c.target = &connection{
-		host:     host.String(),
-		port:     int(port.Number()),
-		database: database.String(),
-		username: username.String(),
-		password: password.String(),
-		sslMode:  sslmode.String(),
+		host:     host,
+		port:     int(port),
+		database: database,
+		username: username,
+		password: password,
+		sslMode:  sslmode,
 	}
 
 	return nil

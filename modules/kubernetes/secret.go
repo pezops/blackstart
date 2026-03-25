@@ -167,9 +167,14 @@ func (s *secretModule) Validate(op blackstart.Operation) error {
 	if !ok {
 		return fmt.Errorf("input '%s' must be provided", inputName)
 	}
-	name := nameInput.String()
-	if name == "" {
-		return fmt.Errorf("input '%s' must be non-empty", inputName)
+	if nameInput.IsStatic() {
+		name, err := blackstart.InputAs[string](nameInput, true)
+		if err != nil {
+			return fmt.Errorf("input '%s' is invalid: %w", inputName, err)
+		}
+		if name == "" {
+			return fmt.Errorf("input '%s' must be non-empty", inputName)
+		}
 	}
 
 	// Client is required
@@ -197,17 +202,15 @@ func (s *secretModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		return false, fmt.Errorf("client input is not a Kubernetes clientset")
 	}
 
-	nameInput, err := ctx.Input(inputName)
+	name, err := blackstart.ContextInputAs[string](ctx, inputName, true)
 	if err != nil {
 		return false, err
 	}
-	name := nameInput.String()
 
-	namespaceInput, err := ctx.Input(inputNamespace)
+	namespace, err := blackstart.ContextInputAs[string](ctx, inputNamespace, true)
 	if err != nil {
 		return false, err
 	}
-	namespace := namespaceInput.String()
 
 	si := cc.CoreV1().Secrets(namespace)
 
@@ -230,13 +233,10 @@ func (s *secretModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	// Get the Secret
 	if sec != nil {
 		// Check if the type matches the desired state
-		var typeInput blackstart.Input
-		typeInput, err = ctx.Input(inputType)
-		if err != nil {
-			return false, err
+		desiredType, typeErr := blackstart.ContextInputAs[string](ctx, inputType, false)
+		if typeErr != nil {
+			return false, typeErr
 		}
-
-		desiredType := typeInput.String()
 		if desiredType != "" {
 			currentType := string(sec.Type)
 			if currentType == "" {
@@ -248,14 +248,12 @@ func (s *secretModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 
 		// Check if the immutable field matches the desired state (only if immutable input is provided)
-		var immutableInput blackstart.Input
-		immutableInput, err = ctx.Input(inputImmutable)
-		if err != nil {
-			return false, err
+		desiredImmutablePtr, immutableErr := blackstart.ContextInputAs[*bool](ctx, inputImmutable, false)
+		if immutableErr != nil {
+			return false, immutableErr
 		}
-		if immutableInput.Any() != nil {
-			// immutableInput is provided and not nil
-			desiredImmutable := immutableInput.Bool()
+		if desiredImmutablePtr != nil {
+			desiredImmutable := *desiredImmutablePtr
 			if sec.Immutable == nil {
 				return false, nil
 			}
@@ -286,17 +284,15 @@ func (s *secretModule) Set(ctx blackstart.ModuleContext) error {
 		return fmt.Errorf("client input is not a Kubernetes clientset")
 	}
 
-	nameInput, err := ctx.Input(inputName)
+	name, err := blackstart.ContextInputAs[string](ctx, inputName, true)
 	if err != nil {
 		return err
 	}
-	name := nameInput.String()
 
-	namespaceInput, err := ctx.Input(inputNamespace)
+	namespace, err := blackstart.ContextInputAs[string](ctx, inputNamespace, true)
 	if err != nil {
 		return err
 	}
-	namespace := namespaceInput.String()
 
 	si := client.CoreV1().Secrets(namespace)
 
@@ -334,22 +330,20 @@ func (s *secretModule) Set(ctx blackstart.ModuleContext) error {
 			}
 
 			// Set the secret type
-			var typeInput blackstart.Input
-			typeInput, err = ctx.Input(inputType)
-			if err != nil {
-				return err
+			desiredType, typeErr := blackstart.ContextInputAs[string](ctx, inputType, false)
+			if typeErr != nil {
+				return typeErr
 			}
-			newSec.Type = corev1.SecretType(typeInput.String())
+			newSec.Type = corev1.SecretType(desiredType)
 
 			// Only set immutable if the input is provided and not nil
-			var immutableInput blackstart.Input
-			immutableInput, err = ctx.Input(inputImmutable)
-			if err != nil {
-				return err
+			desiredImmutablePtr, immutableErr := blackstart.ContextInputAs[*bool](ctx, inputImmutable, false)
+			if immutableErr != nil {
+				return immutableErr
 			}
 
-			if immutableInput.Any() != nil {
-				desiredImmutable := immutableInput.Bool()
+			if desiredImmutablePtr != nil {
+				desiredImmutable := *desiredImmutablePtr
 				newSec.Immutable = &desiredImmutable
 			}
 
@@ -367,26 +361,23 @@ func (s *secretModule) Set(ctx blackstart.ModuleContext) error {
 		needsUpdate := false
 
 		// Check if type needs to be updated
-		var typeInput blackstart.Input
-		typeInput, err = ctx.Input(inputType)
-		if err != nil {
-			return err
+		desiredTypeValue, typeErr := blackstart.ContextInputAs[string](ctx, inputType, false)
+		if typeErr != nil {
+			return typeErr
 		}
-		desiredType := corev1.SecretType(typeInput.String())
+		desiredType := corev1.SecretType(desiredTypeValue)
 		if sec.Type != desiredType {
 			needsUpdate = true
 			sec.Type = desiredType
 		}
 
 		// Check if we need to update the immutable field (only if immutable input is provided)
-		var immutableInput blackstart.Input
-		immutableInput, err = ctx.Input(inputImmutable)
-		if err != nil {
-			return err
+		desiredImmutablePtr, immutableErr := blackstart.ContextInputAs[*bool](ctx, inputImmutable, false)
+		if immutableErr != nil {
+			return immutableErr
 		}
-		if immutableInput.Any() != nil {
-			// immutableInput is provided and not nil
-			desiredImmutable := immutableInput.Bool()
+		if desiredImmutablePtr != nil {
+			desiredImmutable := *desiredImmutablePtr
 			currentImmutable := sec.Immutable
 
 			if currentImmutable == nil || desiredImmutable != *currentImmutable {

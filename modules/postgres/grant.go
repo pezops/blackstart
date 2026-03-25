@@ -72,27 +72,18 @@ func newGrant(mctx blackstart.ModuleContext) (*grant, error) {
 	var err error
 
 	target := &grant{}
-	role, err := mctx.Input(inputRole)
+	target.Role, err = blackstart.ContextInputAs[string](mctx, inputRole, true)
 	if err != nil {
 		return nil, err
 	}
-	if role.String() == "" {
-		return nil, fmt.Errorf("role cannot be empty")
-	}
-	target.Role = role.String()
 
-	perm, err := mctx.Input(inputPermission)
+	target.Permission, err = blackstart.ContextInputAs[string](mctx, inputPermission, true)
 	if err != nil {
 		return nil, err
 	}
-	if perm.String() == "" {
-		return nil, fmt.Errorf("permission cannot be empty")
-	}
-	target.Permission = perm.String()
 
-	schema, _ := mctx.Input(inputSchema)
-	if schema != nil {
-		target.Schema = schema.String()
+	if schema, schemaErr := blackstart.ContextInputAs[string](mctx, inputSchema, false); schemaErr == nil {
+		target.Schema = schema
 	}
 	if target.Schema != "" {
 		err = validatePostgresIdentifier(target.Schema)
@@ -101,9 +92,8 @@ func newGrant(mctx blackstart.ModuleContext) (*grant, error) {
 		}
 	}
 
-	resource, _ := mctx.Input(inputResource)
-	if resource != nil {
-		target.Resource = resource.String()
+	if resource, resourceErr := blackstart.ContextInputAs[string](mctx, inputResource, false); resourceErr == nil {
+		target.Resource = resource
 	}
 	if target.Resource != "" {
 		err = validatePostgresIdentifier(target.Resource)
@@ -112,9 +102,8 @@ func newGrant(mctx blackstart.ModuleContext) (*grant, error) {
 		}
 	}
 
-	scopeInput, _ := mctx.Input(inputScope)
-	if scopeInput != nil {
-		target.Scope = scopeInput.String()
+	if scope, scopeErr := blackstart.ContextInputAs[string](mctx, inputScope, false); scopeErr == nil {
+		target.Scope = scope
 	}
 
 	if target.Scope == "" {
@@ -144,32 +133,32 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 		Inputs: map[string]blackstart.InputValue{
 			inputConnection: {
 				Description: "database connection to the managed Postgres instance.",
-				Type:        reflect.TypeOf(&sql.DB{}),
+				Type:        reflect.TypeFor[*sql.DB](),
 				Required:    true,
 			},
 			inputRole: {
 				Description: "Role or username that will have the grant assigned.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputPermission: {
 				Description: "Permission or Role to be assigned to the Role. Depending on the Resource Scope, the valid permissions may vary.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputSchema: {
 				Description: "Id of a Postgres Schema where the Permission is to be applied.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputResource: {
 				Description: "Id of the Resource for the Permission to be applied. This might be a database Name, table Name, or Schema Name.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputScope: {
 				Description: "Scope of the Resource where the Permission is to be applied. This might be a database, table, or Schema.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 		},
@@ -207,10 +196,7 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 			if !o.IsStatic() {
 				continue
 			}
-			v, err := o.Auto()
-			if err != nil {
-				return err
-			}
+			v := o.Any()
 			switch x := v.(type) {
 			case string:
 				if x == "" {
@@ -312,19 +298,9 @@ func (g *grantModule) Set(ctx blackstart.ModuleContext) error {
 
 // setup initializes the grantModule by extracting the database connection from the module context.
 func (g *grantModule) setup(ctx blackstart.ModuleContext) error {
-	var connVal any
-	connInput, err := ctx.Input(inputConnection)
+	conn, err := blackstart.ContextInputAs[*sql.DB](ctx, inputConnection, true)
 	if err != nil {
 		return err
-	}
-
-	connVal, err = connInput.Auto()
-	if err != nil {
-		return err
-	}
-	conn, ok := connVal.(*sql.DB)
-	if !ok {
-		return fmt.Errorf("invalid connection input type: %T", connVal)
 	}
 	g.db = conn
 
@@ -458,48 +434,17 @@ func getGrantRevokeQuery(target *grant) (string, []interface{}) {
 // checkGrantRuntimeParams checks that all required runtime parameters are present and valid. It also
 // verifies that the database connection is of the correct type.
 func checkGrantRuntimeParams(ctx blackstart.ModuleContext) (bool, error) {
-	var err error
-	var o blackstart.Input
-	// Check runtime parameters
-	for _, p := range requiredGrantParameters {
-		o, err = ctx.Input(p)
-		if err != nil {
-			return false, fmt.Errorf("missing required parameter: %s", p)
-		} else {
-			if !o.IsStatic() {
-				continue
-			}
-			var v any
-			v, err = o.Auto()
-			if err != nil {
-				return false, err
-			}
-			switch x := v.(type) {
-			case string:
-				if x == "" {
-					return false, fmt.Errorf("parameter %s cannot be empty", p)
-				}
-			default:
-				if x == nil {
-					return false, fmt.Errorf("parameter %s cannot be nil", p)
-				}
-
-			}
-		}
-	}
-
-	// Check the connection
-	o, err = ctx.Input(inputConnection)
+	_, err := blackstart.ContextInputAs[string](ctx, inputRole, true)
 	if err != nil {
 		return false, err
 	}
-	connObj, err := o.Auto()
+	_, err = blackstart.ContextInputAs[string](ctx, inputPermission, true)
 	if err != nil {
 		return false, err
 	}
-	_, ok := connObj.(*sql.DB)
-	if !ok {
-		return false, fmt.Errorf("invalid connection input type: %T", connObj)
+	_, err = blackstart.ContextInputAs[*sql.DB](ctx, inputConnection, true)
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil
