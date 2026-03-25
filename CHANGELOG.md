@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🚀 Features
+
+- Add flexible module input types (#45) by @mbrancato
+
 ## [0.1.3] - 2026-03-21
 
 ### 📚 Documentation
