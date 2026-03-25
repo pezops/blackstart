@@ -8,6 +8,10 @@
 - Add support for multiple inputs for postgres grants (#46) by @mbrancato
 - Add `google_cloud_metadata` module (#47) by @mbrancato
 
+### 🐛 Bug Fixes
+
+- Add missing `database` input to `google_cloudsql_managed_instance` (#48) by @mbrancato
+
 ## [0.1.3] - 2026-03-21
 
 ### 📚 Documentation
