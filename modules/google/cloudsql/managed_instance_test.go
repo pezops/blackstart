@@ -139,7 +139,7 @@ func TestConnectUser(t *testing.T) {
 	username, err := postgresAdcIamUser(ctx)
 	require.NoError(t, err)
 
-	dsn := cloudsqlPostgresIamDsn(instanceIdentifier, "postgres", username)
+	dsn := cloudsqlPostgresIamDsn(instanceIdentifier, dbName, username)
 
 	db, err := sql.Open(sqlDriverPostgresIam, dsn)
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestConnectSvcAcct(t *testing.T) {
 		log.Fatalf("Error finding IAM user: %v", err)
 	}
 
-	dsn := cloudsqlPostgresIamDsn(instanceIdentifier, "postgres", userId)
+	dsn := cloudsqlPostgresIamDsn(instanceIdentifier, dbName, userId)
 
 	var db *sql.DB
 	if filename != "" {

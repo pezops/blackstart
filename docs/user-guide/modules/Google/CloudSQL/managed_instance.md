@@ -24,12 +24,13 @@ for further operations.
 
 ## Inputs
 
-| Id              | Description                                                                                                                   | Type   | Required |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------ | -------- |
-| connection_type | Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`. Defaults to `PRIVATE_IP`.<br>Default: **PRIVATE_IP** | string | false    |
-| instance        | CloudSQL instance ID to manage.                                                                                               | string | true     |
-| project         | Google Cloud project ID. If not provided, the current project will be used.                                                   | string | false    |
-| user            | The user to manage. If not provided, the current user will be used.                                                           | string | false    |
+| Id              | Description                                                                                         | Type   | Required |
+| --------------- | --------------------------------------------------------------------------------------------------- | ------ | -------- |
+| connection_type | Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`.<br>Default: **PRIVATE_IP** | string | false    |
+| database        | Database name to connect to and return in the managed connection.<br>Default: **postgres**          | string | false    |
+| instance        | CloudSQL instance ID to manage.                                                                     | string | true     |
+| project         | Google Cloud project ID. If not provided, the current project will be used.                         | string | false    |
+| user            | The user to manage. If not provided, the current user will be used.                                 | string | false    |
 
 ## Outputs
 
