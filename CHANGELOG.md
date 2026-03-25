@@ -5,6 +5,7 @@
 ### 🚀 Features
 
 - Add flexible module input types (#45) by @mbrancato
+- Add support for multiple inputs for postgres grants (#46) by @mbrancato
 
 ## [0.1.3] - 2026-03-21
 
