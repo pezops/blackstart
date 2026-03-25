@@ -15,9 +15,34 @@ SELECT EXISTS (
       AND has_database_privilege($1, $3, $2)
 );
 `
-	getGrantSchemaQuery = `SELECT has_schema_privilege($2, $3, $1);`
-	getGrantTableQuery  = `SELECT has_table_privilege($2, $4 || '.' || $3, $1);`
-	getRoleQuery        = `
+	getGrantDatabaseAllQuery = `
+SELECT (
+    has_database_privilege($1, $2, 'CREATE')
+    AND has_database_privilege($1, $2, 'CONNECT')
+    AND has_database_privilege($1, $2, 'TEMPORARY')
+);
+`
+	getGrantSchemaQuery    = `SELECT has_schema_privilege($2, $3, $1);`
+	getGrantSchemaAllQuery = `
+SELECT (
+    has_schema_privilege($1, $2, 'CREATE')
+    AND has_schema_privilege($1, $2, 'USAGE')
+);
+`
+	getGrantTableQuery    = `SELECT has_table_privilege($2, $4 || '.' || $3, $1);`
+	getGrantTableAllQuery = `
+SELECT (
+    has_table_privilege($1, $2 || '.' || $3, 'SELECT')
+    AND has_table_privilege($1, $2 || '.' || $3, 'INSERT')
+    AND has_table_privilege($1, $2 || '.' || $3, 'UPDATE')
+    AND has_table_privilege($1, $2 || '.' || $3, 'DELETE')
+    AND has_table_privilege($1, $2 || '.' || $3, 'TRUNCATE')
+    AND has_table_privilege($1, $2 || '.' || $3, 'REFERENCES')
+    AND has_table_privilege($1, $2 || '.' || $3, 'TRIGGER')
+    AND has_table_privilege($1, $2 || '.' || $3, 'MAINTAIN')
+);
+`
+	getRoleQuery = `
 SELECT EXISTS (
 	SELECT 1
 	FROM pg_roles r
@@ -35,11 +60,11 @@ SELECT EXISTS (
 	setGrantInstanceTemplate  = `GRANT "{{.Permission}}" TO "{{.Role}}";`
 	setGrantDatabaseTemplate  = `GRANT {{.Permission}} ON DATABASE "{{.Resource}}" TO "{{.Role}}";`
 	setGrantSchemaTemplate    = `GRANT {{.Permission}} ON SCHEMA "{{.Resource}}" TO "{{.Role}}";`
-	setGrantTableTemplate     = `GRANT {{.Permission}} ON TABLE "{{.Resource}}" TO "{{.Role}}";`
+	setGrantTableTemplate     = `GRANT {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
 	setRevokeInstanceTemplate = `REVOKE "{{.Permission}}" FROM "{{.Role}}";`
 	setRevokeDatabaseTemplate = `REVOKE {{.Permission}} ON DATABASE "{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeSchemaTemplate   = `REVOKE {{.Permission}} ON SCHEMA "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeTableTemplate    = `REVOKE {{.Permission}} ON TABLE "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeTableTemplate    = `REVOKE {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
 	setRoleCreateTemplate     = `CREATE ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleUpdateTemplate     = `ALTER ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleDeleteTemplate     = `DROP ROLE "{{.Name}}";`
