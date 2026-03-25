@@ -3,9 +3,11 @@ package blackstart
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testOpValues map[string]map[string]interface{}
@@ -211,10 +213,12 @@ func TestWorkflowExecution(t *testing.T) {
 							// normally, a module would need to implement the value conversion for inputs.
 							switch v.(type) {
 							case bool:
-								convertedInput := input.Bool()
+								convertedInput, convErr := InputAs[bool](input, true)
+								assert.NoError(t, convErr)
 								assert.Equal(t, v, convertedInput)
 							case string:
-								convertedInput := input.String()
+								convertedInput, convErr := InputAs[string](input, true)
+								assert.NoError(t, convErr)
 								assert.Equal(t, v, convertedInput)
 							}
 						}
@@ -428,4 +432,140 @@ func TestOpoSort(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestCheckInputsOutputs_StaticInputAcceptsAnyDeclaredType(t *testing.T) {
+	op := &Operation{
+		Id: "test-op",
+		Inputs: map[string]Input{
+			"value": NewInputFromValue(true),
+		},
+	}
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Required: true,
+				Types:    []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[bool]()},
+			},
+		},
+	}
+
+	err := checkInputsOutputs(op, info, nil)
+	require.NoError(t, err)
+}
+
+func TestCheckInputsOutputs_SupportsLegacySingleTypeField(t *testing.T) {
+	op := &Operation{
+		Id: "test-op",
+		Inputs: map[string]Input{
+			"value": NewInputFromValue("ok"),
+		},
+	}
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Required: true,
+				Type:     reflect.TypeFor[string](),
+			},
+		},
+	}
+
+	err := checkInputsOutputs(op, info, nil)
+	require.NoError(t, err)
+}
+
+func TestCheckInputsOutputs_DependencyOutputMatchesAnyDeclaredType(t *testing.T) {
+	op := &Operation{
+		Id: "test-op",
+		Inputs: map[string]Input{
+			"value": NewInputFromDep("dep-op", "result"),
+		},
+	}
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Required: true,
+				Types:    []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[bool]()},
+			},
+		},
+	}
+	opsInfo := map[string]ModuleInfo{
+		"dep-op": {
+			Outputs: map[string]OutputValue{
+				"result": {Type: reflect.TypeFor[bool]()},
+			},
+		},
+	}
+
+	err := checkInputsOutputs(op, info, opsInfo)
+	require.NoError(t, err)
+}
+
+func TestCheckInputsOutputs_DependencyOutputTypeMismatch(t *testing.T) {
+	op := &Operation{
+		Id: "test-op",
+		Inputs: map[string]Input{
+			"value": NewInputFromDep("dep-op", "result"),
+		},
+	}
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Required: true,
+				Types:    []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[bool]()},
+			},
+		},
+	}
+	opsInfo := map[string]ModuleInfo{
+		"dep-op": {
+			Outputs: map[string]OutputValue{
+				"result": {Type: reflect.TypeFor[int]()},
+			},
+		},
+	}
+
+	err := checkInputsOutputs(op, info, opsInfo)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "expected type(s)")
+}
+
+func TestCheckInputsOutputs_StaticAnySliceMatchesStringSlice(t *testing.T) {
+	op := &Operation{
+		Id: "test-op",
+		Inputs: map[string]Input{
+			"value": NewInputFromValue([]any{"SELECT", "UPDATE"}),
+		},
+	}
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Required: true,
+				Type:     reflect.TypeFor[[]string](),
+			},
+		},
+	}
+
+	err := checkInputsOutputs(op, info, nil)
+	require.NoError(t, err)
+}
+
+func TestCheckInputsOutputs_StaticAnySliceMismatchStringSlice(t *testing.T) {
+	op := &Operation{
+		Id: "test-op",
+		Inputs: map[string]Input{
+			"value": NewInputFromValue([]any{"SELECT", 1}),
+		},
+	}
+	info := ModuleInfo{
+		Inputs: map[string]InputValue{
+			"value": {
+				Required: true,
+				Type:     reflect.TypeFor[[]string](),
+			},
+		},
+	}
+
+	err := checkInputsOutputs(op, info, nil)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "not assignable")
 }

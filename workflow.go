@@ -197,10 +197,11 @@ func checkInputsOutputs(op *Operation, info ModuleInfo, opsInfo map[string]Modul
 
 		if input.IsStatic() {
 			value := input.Any()
-			if !matchesType(value, param.Type) {
+			supportedTypes := param.SupportedTypes()
+			if !matchesAnyType(value, supportedTypes) {
 				return fmt.Errorf(
-					"input %q for operation %q is static but is not assignable to expected type %v",
-					name, op.Id, param.Type,
+					"input %q for operation %q is static but is not assignable to expected type(s) %s",
+					name, op.Id, param.TypeDisplay(),
 				)
 			}
 		} else {
@@ -223,10 +224,11 @@ func checkInputsOutputs(op *Operation, info ModuleInfo, opsInfo map[string]Modul
 					outputKey, depId, name, op.Id,
 				)
 			}
-			if output.Type != param.Type {
+			supportedTypes := param.SupportedTypes()
+			if !containsExactType(output.Type, supportedTypes) {
 				return fmt.Errorf(
-					"input %q for operation %q is does not match expected type %v from dependency %q",
-					name, op.Id, param.Type, depId,
+					"input %q for operation %q does not match expected type(s) %s from dependency %q",
+					name, op.Id, param.TypeDisplay(), depId,
 				)
 			}
 		}
@@ -348,6 +350,9 @@ func matchesType(v any, t reflect.Type) bool {
 	if v == nil {
 		return false // untyped nil
 	}
+	if t == nil {
+		return false
+	}
 	vt := reflect.TypeOf(v)
 
 	if t.Kind() == reflect.Interface {
@@ -355,7 +360,7 @@ func matchesType(v any, t reflect.Type) bool {
 	}
 
 	// Check direct assignment
-	if vt == t || vt.AssignableTo(t) {
+	if vt == t || vt.AssignableTo(t) || vt.ConvertibleTo(t) {
 		return true
 	}
 
@@ -363,10 +368,67 @@ func matchesType(v any, t reflect.Type) bool {
 	// This allows bool to be assignable to *bool, string to *string, etc.
 	if t.Kind() == reflect.Ptr {
 		elemType := t.Elem()
-		if vt == elemType || vt.AssignableTo(elemType) {
+		if vt == elemType || vt.AssignableTo(elemType) || vt.ConvertibleTo(elemType) {
 			return true
 		}
 	}
 
+	// Align static validation with InputAs coercions for YAML/JSON decoded slices.
+	if t.Kind() == reflect.Slice {
+		elemType := t.Elem()
+
+		// InputAs supports string -> []string.
+		if _, ok := v.(string); ok {
+			return elemType.Kind() == reflect.String
+		}
+
+		// YAML/JSON decoded lists often arrive as []any.
+		if list, ok := v.([]any); ok {
+			for _, item := range list {
+				if item == nil {
+					return false
+				}
+				itemType := reflect.TypeOf(item)
+				if elemType.Kind() == reflect.String && itemType.Kind() != reflect.String {
+					return false
+				}
+				if itemType == elemType || itemType.AssignableTo(elemType) {
+					continue
+				}
+				if itemType.ConvertibleTo(elemType) && elemType.Kind() != reflect.String {
+					continue
+				}
+				return false
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
+// matchesAnyType checks if the value v matches any of the expected types.
+func matchesAnyType(v any, types []reflect.Type) bool {
+	if len(types) == 0 {
+		return true
+	}
+	for _, t := range types {
+		if t != nil && matchesType(v, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsExactType checks if the got type exactly matches any of the expected types.
+func containsExactType(got reflect.Type, expected []reflect.Type) bool {
+	if len(expected) == 0 {
+		return true
+	}
+	for _, t := range expected {
+		if t == got {
+			return true
+		}
+	}
 	return false
 }

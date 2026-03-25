@@ -69,9 +69,14 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 	if !ok {
 		return fmt.Errorf("input '%s' must be provided", inputKey)
 	}
-	key := keyInput.String()
-	if key == "" {
-		return fmt.Errorf("input '%s' must be non-empty", inputKey)
+	if keyInput.IsStatic() {
+		key, err := blackstart.InputAs[string](keyInput, true)
+		if err != nil {
+			return fmt.Errorf("input '%s' is invalid: %w", inputKey, err)
+		}
+		if key == "" {
+			return fmt.Errorf("input '%s' must be non-empty", inputKey)
+		}
 	}
 
 	// Value is required (but can be an empty string)
@@ -88,7 +93,14 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 
 	updatePolicy := updatePolicyOverwrite
 	if updatePolicyInput, exists := op.Inputs[inputUpdatePolicy]; exists {
-		updatePolicy = strings.TrimSpace(updatePolicyInput.String())
+		if !updatePolicyInput.IsStatic() {
+			return nil
+		}
+		updatePolicyValue, err := blackstart.InputAs[string](updatePolicyInput, false)
+		if err != nil {
+			return fmt.Errorf("input '%s' is invalid: %w", inputUpdatePolicy, err)
+		}
+		updatePolicy = strings.TrimSpace(updatePolicyValue)
 		if updatePolicy == "" {
 			updatePolicy = updatePolicyOverwrite
 		}
@@ -117,22 +129,20 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 		return false, fmt.Errorf("client input is not a ConfigMap")
 	}
 
-	keyInput, err := ctx.Input(inputKey)
+	key, err := blackstart.ContextInputAs[string](ctx, inputKey, true)
 	if err != nil {
 		return false, err
 	}
-	key := keyInput.String()
 
-	desiredValueInput, err := ctx.Input(inputValue)
+	desiredValue, err := blackstart.ContextInputAs[string](ctx, inputValue, true)
 	if err != nil {
 		return false, err
 	}
-	desiredValue := desiredValueInput.String()
 
 	updatePolicy := updatePolicyOverwrite
-	updatePolicyInput, err := ctx.Input(inputUpdatePolicy)
-	if err == nil {
-		updatePolicy = strings.TrimSpace(updatePolicyInput.String())
+	updatePolicyInput, inputErr := blackstart.ContextInputAs[string](ctx, inputUpdatePolicy, false)
+	if inputErr == nil {
+		updatePolicy = strings.TrimSpace(updatePolicyInput)
 	}
 	if updatePolicy == "" {
 		updatePolicy = updatePolicyOverwrite
@@ -188,17 +198,15 @@ func (c *configMapValueModule) Set(ctx blackstart.ModuleContext) error {
 		return fmt.Errorf("client input is not a ConfigMap")
 	}
 
-	keyInput, err := ctx.Input(inputKey)
+	key, err := blackstart.ContextInputAs[string](ctx, inputKey, true)
 	if err != nil {
 		return err
 	}
-	key := keyInput.String()
 
-	desiredValueInput, err := ctx.Input(inputValue)
+	desiredValue, err := blackstart.ContextInputAs[string](ctx, inputValue, true)
 	if err != nil {
 		return err
 	}
-	desiredValue := desiredValueInput.String()
 
 	// ConfigMap exists, update the value
 	if cm.cm.Data == nil {

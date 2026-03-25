@@ -71,22 +71,22 @@ usable for further operations.
 		Inputs: map[string]blackstart.InputValue{
 			inputInstance: {
 				Description: "CloudSQL instance ID to manage.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputProject: {
 				Description: "Google Cloud project ID. If not provided, the current project will be used.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputUser: {
 				Description: "The user to manage. If not provided, the current user will be used.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputConnectionType: {
 				Description: "Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`. Defaults to `PRIVATE_IP`.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    false,
 				Default:     "PRIVATE_IP",
 			},
@@ -94,7 +94,7 @@ usable for further operations.
 		Outputs: map[string]blackstart.OutputValue{
 			outputConnection: {
 				Description: "Database connection to the managed CloudSQL instance authenticated as the managing user.",
-				Type:        reflect.TypeOf(&sql.DB{}),
+				Type:        reflect.TypeFor[*sql.DB](),
 			},
 		},
 		Examples: map[string]string{
@@ -147,13 +147,27 @@ func (m *managedInstance) Validate(op blackstart.Operation) error {
 	}
 
 	instance := op.Inputs[inputInstance]
-	if instance.String() == "" {
-		return fmt.Errorf("instance cannot be empty")
+	if instance.IsStatic() {
+		instanceValue, err := blackstart.InputAs[string](instance, true)
+		if err != nil {
+			return fmt.Errorf("invalid instance: %w", err)
+		}
+		if instanceValue == "" {
+			return fmt.Errorf("instance cannot be empty")
+		}
 	}
 
-	ct := op.Inputs[inputConnectionType]
-	if !slices.Contains([]string{"PUBLIC_IP", "PRIVATE_IP", ""}, strings.ToUpper(ct.String())) {
-		return fmt.Errorf("invalid connection_type: %s - must be one of: PUBLIC_IP, PRIVATE_IP", ct.String())
+	if ct, ok := op.Inputs[inputConnectionType]; ok && ct.IsStatic() {
+		connectionType, err := blackstart.InputAs[string](ct, false)
+		if err != nil {
+			return fmt.Errorf("invalid connection_type: %w", err)
+		}
+		if !slices.Contains([]string{"PUBLIC_IP", "PRIVATE_IP", ""}, strings.ToUpper(connectionType)) {
+			return fmt.Errorf(
+				"invalid connection_type: %s - must be one of: PUBLIC_IP, PRIVATE_IP",
+				connectionType,
+			)
+		}
 	}
 
 	return nil
@@ -302,14 +316,12 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 // setup initializes the module by reading inputs, creating the target configuration and setting
 // up the SQL Admin service with the appropriate credentials.
 func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
-	var instance blackstart.Input
-	var username blackstart.Input
 	m.target = &connectionConfig{}
-	projectInput, err := ctx.Input(inputProject)
+	projectInput, err := blackstart.ContextInputAs[string](ctx, inputProject, false)
 	if err != nil {
 		return err
 	}
-	m.target.project = projectInput.String()
+	m.target.project = projectInput
 	if m.target.project == "" {
 		var creds *google.Credentials
 		m.target.project, creds, err = cloud.CurrentProject(ctx)
@@ -328,22 +340,20 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 		}
 	}
 
-	instance, err = ctx.Input(inputInstance)
+	instance, err := blackstart.ContextInputAs[string](ctx, inputInstance, true)
 	if err != nil {
 		return err
 	}
-	m.target.instance = instance.String()
+	m.target.instance = instance
 	if m.target.instance == "" {
 		return fmt.Errorf("instance ID cannot be empty")
 	}
 
-	username, err = ctx.Input(inputUser)
+	username, err := blackstart.ContextInputAs[string](ctx, inputUser, false)
 	if err != nil && !errors.Is(err, blackstart.ErrInputDoesNotExist) {
 		return err
 	}
-	if username != nil {
-		m.target.user = username.String()
-	}
+	m.target.user = username
 	if m.target.user == "" {
 		var u string
 		u, err = postgresIamUser(ctx, m.creds)
@@ -398,34 +408,34 @@ func (m *managedInstance) getConnection(ctx blackstart.ModuleContext) (*sql.DB, 
 
 // getDriver returns the appropriate driver based on the connection type.
 func (m *managedInstance) getDriver(ctx blackstart.ModuleContext) (string, error) {
-	driver, err := ctx.Input(inputConnectionType)
+	driver, err := blackstart.ContextInputAs[string](ctx, inputConnectionType, false)
 	if err != nil {
 		return "", err
 	}
-	switch strings.ToUpper(driver.String()) {
+	switch strings.ToUpper(driver) {
 	case "PUBLIC_IP":
 		return sqlDriverPostgresIam, nil
 	case "PRIVATE_IP", "":
 		return sqlDriverPostgresIamPrivateIp, nil
 	default:
-		return "", fmt.Errorf("invalid connection_type: %s", driver.String())
+		return "", fmt.Errorf("invalid connection_type: %s", driver)
 	}
 }
 
 // getBuiltinDriver returns the driver name for the built-in user type. This is used for the
 // temporary admin connection.
 func (m *managedInstance) getBuiltinDriver(ctx blackstart.ModuleContext) (string, error) {
-	driver, err := ctx.Input(inputConnectionType)
+	driver, err := blackstart.ContextInputAs[string](ctx, inputConnectionType, false)
 	if err != nil {
 		return "", err
 	}
-	switch strings.ToUpper(driver.String()) {
+	switch strings.ToUpper(driver) {
 	case "PUBLIC_IP":
 		return sqlDriverPostgres, nil
 	case "PRIVATE_IP", "":
 		return sqlDriverPostgresPrivateIp, nil
 	default:
-		return "", fmt.Errorf("invalid connection_type: %s", driver.String())
+		return "", fmt.Errorf("invalid connection_type: %s", driver)
 	}
 }
 

@@ -65,11 +65,10 @@ func (c *clientModule) Set(ctx blackstart.ModuleContext) error {
 	var config *rest.Config
 	var err error
 
-	contextInput, err := ctx.Input(inputContext)
+	kubeContext, err = blackstart.ContextInputAs[string](ctx, inputContext, false)
 	if err != nil {
 		return err
 	}
-	kubeContext = contextInput.String()
 
 	// Attempt to do in-cluster configuration if no context is provided
 	if kubeContext == "" {

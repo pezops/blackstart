@@ -28,7 +28,7 @@ func TestConnectionValidate(t *testing.T) {
 	}}
 	err = mod.Validate(op)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "parameter username cannot be empty")
+	require.Contains(t, err.Error(), "parameter username is invalid")
 
 	// Valid username
 	op = blackstart.Operation{Inputs: map[string]blackstart.Input{

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -19,8 +20,6 @@ const (
 	TaintedFlag ModuleContextFlag = iota
 	DoesNotExistFlag
 )
-
-type inputType int
 
 // OutputValue is a structure that describes a value used in a module's outputs.
 type OutputValue struct {
@@ -39,9 +38,12 @@ type InputValue struct {
 	// the value is and how it should be used.
 	Description string
 
-	// Type is the type of the value. This is used to provide context about what type of value is
-	// expected.
+	// Type is the legacy single accepted type for the input.
+	// Prefer Types for modules that support multiple accepted types.
 	Type reflect.Type
+
+	// Types are accepted input types. If set, validation accepts any listed type.
+	Types []reflect.Type
 
 	// Required indicates whether the value is required. When used as an input, this indicates
 	// that the value must be provided for the module to function correctly.
@@ -49,6 +51,36 @@ type InputValue struct {
 
 	// Default is an optional default value for the input parameter.
 	Default any
+}
+
+// SupportedTypes returns the accepted input types.
+func (i InputValue) SupportedTypes() []reflect.Type {
+	if len(i.Types) > 0 {
+		return i.Types
+	}
+	if i.Type != nil {
+		return []reflect.Type{i.Type}
+	}
+	return nil
+}
+
+// TypeDisplay renders accepted input types for docs/error messages.
+func (i InputValue) TypeDisplay() string {
+	supported := i.SupportedTypes()
+	if len(supported) == 0 {
+		return "<unspecified>"
+	}
+	names := make([]string, 0, len(supported))
+	for _, t := range supported {
+		if t == nil {
+			continue
+		}
+		names = append(names, t.String())
+	}
+	if len(names) == 0 {
+		return "<unspecified>"
+	}
+	return strings.Join(names, ", ")
 }
 
 // ModuleInfo is a static structure that provides information about a module. It is used to
@@ -222,25 +254,10 @@ func (mc *moduleContext) Value(key any) any {
 	return mc.ctx.Value(key)
 }
 
-const (
-	undefinedInput inputType = iota
-	stringInput
-	boolInput
-	numberInput
-	unsignedNumberInput
-	floatInput
-	anyInput
-)
-
 // --8<-- [start:Input]
 type Input interface {
 	IsStatic() bool
-	String() string
-	Bool() bool
-	Number() int64
-	Float() float64
 	Any() any
-	Auto() (any, error)
 	DependencyId() string
 	OutputKey() string
 }
@@ -250,12 +267,6 @@ type Input interface {
 // moduleInput represents an input to a module. Input values may be simple scalar values or any
 // value type output from a dependency.
 type moduleInput struct {
-	defaultType           inputType
-	stringValue           string
-	boolValue             bool
-	numberValue           int64
-	unsignedNumberValue   uint64
-	floatValue            float64
 	anyValue              any
 	dependencyOutputValue *dependencyOutput
 }
@@ -263,43 +274,6 @@ type moduleInput struct {
 // IsStatic returns true if the input is a static value, false if it is only available at runtime.
 func (m *moduleInput) IsStatic() bool {
 	return m.dependencyOutputValue == nil
-}
-
-// Auto returns the value of the input in its native type. If the input is not static, an error is
-// returned.
-func (m *moduleInput) Auto() (any, error) {
-	switch m.defaultType {
-	case stringInput:
-		return m.String(), nil
-	case boolInput:
-		return m.Bool(), nil
-	case numberInput:
-		return m.Number(), nil
-	case unsignedNumberInput:
-		return m.Number(), nil
-	case floatInput:
-		return m.Float(), nil
-	case anyInput:
-		return m.Any(), nil
-	default:
-		return nil, fmt.Errorf("unable to determine type")
-	}
-}
-
-func (m *moduleInput) String() string {
-	return m.stringValue
-}
-
-func (m *moduleInput) Bool() bool {
-	return m.boolValue
-}
-
-func (m *moduleInput) Number() int64 {
-	return m.numberValue
-}
-
-func (m *moduleInput) Float() float64 {
-	return m.floatValue
 }
 
 func (m *moduleInput) Any() any {
@@ -326,22 +300,7 @@ func (m *moduleInput) OutputKey() string {
 // NewInputFromValue creates a new module input from a static value. It detects the type and
 // assigns it to the correct field.
 func NewInputFromValue(value interface{}) Input {
-	switch v := value.(type) {
-	case string:
-		return &moduleInput{stringValue: v, anyValue: v, defaultType: stringInput}
-	case bool:
-		return &moduleInput{boolValue: v, anyValue: v, defaultType: boolInput}
-	case int:
-		return &moduleInput{numberValue: int64(v), anyValue: v, defaultType: numberInput}
-	case int64:
-		return &moduleInput{numberValue: v, anyValue: v, defaultType: numberInput}
-	case uint64:
-		return &moduleInput{unsignedNumberValue: v, anyValue: v, defaultType: unsignedNumberInput}
-	case float64:
-		return &moduleInput{floatValue: v, anyValue: v, defaultType: floatInput}
-	default:
-		return &moduleInput{anyValue: value, defaultType: anyInput}
-	}
+	return &moduleInput{anyValue: value}
 }
 
 // NewInputFromDep creates a new module input from a dependency output. This is used to reference
@@ -369,7 +328,42 @@ type dependencyOutput struct {
 // any setup or validation. It should also not need to return any error, setup and verification of
 // the module will be done in the setup method.
 func RegisterModule(module string, factory func() Module) {
+	if factory == nil {
+		panic(fmt.Errorf("invalid module registration %q: factory is nil", module))
+	}
+
+	instance := factory()
+	if instance == nil {
+		panic(fmt.Errorf("invalid module registration %q: factory returned nil module", module))
+	}
+
+	if err := validateModuleInfo(instance.Info()); err != nil {
+		panic(fmt.Errorf("invalid module registration %q: %w", module, err))
+	}
+
 	registeredModuleFactories[module] = factory
+}
+
+// validateModuleInfo validates module input schema definitions for internal consistency.
+func validateModuleInfo(info ModuleInfo) error {
+	for name, input := range info.Inputs {
+		if input.Type != nil && len(input.Types) > 0 {
+			return fmt.Errorf("input %q defines both Type and Types; set only one", name)
+		}
+		if len(input.Types) > 0 {
+			nonNilTypes := 0
+			for _, t := range input.Types {
+				if t == nil {
+					continue
+				}
+				nonNilTypes++
+			}
+			if nonNilTypes == 0 {
+				return fmt.Errorf("input %q defines Types but all entries are nil", name)
+			}
+		}
+	}
+	return nil
 }
 
 // GetRegisteredModules returns a map of all registered modules and their factory functions.

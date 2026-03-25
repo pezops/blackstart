@@ -57,32 +57,32 @@ func (r roleModule) Info() blackstart.ModuleInfo {
 		Inputs: map[string]blackstart.InputValue{
 			inputName: {
 				Description: "Id of the Role to manage.",
-				Type:        reflect.TypeOf(""),
+				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
 			inputLogin: {
 				Description: "If true, the Role can log in to the database.",
-				Type:        reflect.TypeOf(true),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 			},
 			inputInherit: {
 				Description: "If true, the Role can Inherit privileges from other roles.",
-				Type:        reflect.TypeOf(true),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 			},
 			inputCreateDb: {
 				Description: "If true, the Role can create databases.",
-				Type:        reflect.TypeOf(false),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 			},
 			inputCreateRole: {
 				Description: "If true, the Role can create other roles.",
-				Type:        reflect.TypeOf(false),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 			},
 			inputReplication: {
 				Description: "If true, the Role can initiate streaming Replication.",
-				Type:        reflect.TypeOf(false),
+				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 			},
 		},
@@ -110,8 +110,9 @@ func (r roleModule) Validate(op blackstart.Operation) error {
 			if !o.IsStatic() {
 				continue
 			}
-			if o.String() == "" {
-				return fmt.Errorf("parameter %s cannot be empty", p)
+			_, err := blackstart.InputAs[string](o, true)
+			if err != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", p, err)
 			}
 		}
 	}
@@ -163,20 +164,26 @@ func (r roleModule) Set(ctx blackstart.ModuleContext) error {
 
 // createTargetRole creates the target Role from the operation inputs.
 func (r roleModule) createTargetRole(ctx blackstart.ModuleContext) error {
-	name, err := ctx.Input(inputName)
+	name, err := blackstart.ContextInputAs[string](ctx, inputName, true)
 	if err != nil {
 		return err
 	}
-	r.target = newRole(name.String())
+	r.target = newRole(name)
 
 	for _, p := range []string{inputLogin, inputInherit, inputCreateDb, inputCreateRole, inputReplication} {
-		var v blackstart.Input
+		var v bool
+		var inputVal blackstart.Input
 		var useDefault bool
-		v, err = ctx.Input(p)
+		inputVal, err = ctx.Input(p)
 		if errors.Is(err, blackstart.ErrInputDoesNotExist) {
 			useDefault = true
 		} else if err != nil {
 			return err
+		} else {
+			v, err = blackstart.InputAs[bool](inputVal, false)
+			if err != nil {
+				return fmt.Errorf("invalid input %s: %w", p, err)
+			}
 		}
 		switch p {
 		case inputLogin:
@@ -184,31 +191,31 @@ func (r roleModule) createTargetRole(ctx blackstart.ModuleContext) error {
 				r.target.Login = true
 				continue
 			}
-			r.target.Login = v.Bool()
+			r.target.Login = v
 		case inputInherit:
 			if useDefault {
 				r.target.Inherit = true
 				continue
 			}
-			r.target.Inherit = v.Bool()
+			r.target.Inherit = v
 		case inputCreateDb:
 			if useDefault {
 				r.target.CreateDb = false
 				continue
 			}
-			r.target.CreateDb = v.Bool()
+			r.target.CreateDb = v
 		case inputCreateRole:
 			if useDefault {
 				r.target.CreateRole = false
 				continue
 			}
-			r.target.CreateRole = v.Bool()
+			r.target.CreateRole = v
 		case inputReplication:
 			if useDefault {
 				r.target.Replication = false
 				continue
 			}
-			r.target.Replication = v.Bool()
+			r.target.Replication = v
 		}
 	}
 	return nil

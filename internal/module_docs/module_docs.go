@@ -31,7 +31,7 @@ title: {{ .Id }}
 | Id | Description | Type | Required |
 |------|-------------|------|----------|
 {{- range $name, $input := .Inputs }}
-| {{ $name }} | {{ $input.Description }}{{ if and (not $input.Required) (ne $input.Default nil) }}<br>Default: **{{ $input.Default }}**{{ end }} | {{ $input.Type }} | {{ $input.Required }} |
+| {{ $name }} | {{ $input.Description }}{{ if and (not $input.Required) (ne $input.Default nil) }}<br>Default: **{{ $input.Default }}**{{ end }} | {{ $input.TypeDisplay }} | {{ $input.Required }} |
 {{- end }}
 {{- else }}
 

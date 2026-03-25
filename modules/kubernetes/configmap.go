@@ -152,9 +152,14 @@ func (c *configMapModule) Validate(op blackstart.Operation) error {
 	if !ok {
 		return fmt.Errorf("input '%s' must be provided", inputName)
 	}
-	name := nameInput.String()
-	if name == "" {
-		return fmt.Errorf("input '%s' must be non-empty", inputName)
+	if nameInput.IsStatic() {
+		name, err := blackstart.InputAs[string](nameInput, true)
+		if err != nil {
+			return fmt.Errorf("input '%s' is invalid: %w", inputName, err)
+		}
+		if name == "" {
+			return fmt.Errorf("input '%s' must be non-empty", inputName)
+		}
 	}
 
 	// Client is required
@@ -182,17 +187,15 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		return false, fmt.Errorf("client input is not a Kubernetes clientset")
 	}
 
-	nameInput, err := ctx.Input(inputName)
+	name, err := blackstart.ContextInputAs[string](ctx, inputName, true)
 	if err != nil {
 		return false, err
 	}
-	name := nameInput.String()
 
-	namespaceInput, err := ctx.Input(inputNamespace)
+	namespace, err := blackstart.ContextInputAs[string](ctx, inputNamespace, true)
 	if err != nil {
 		return false, err
 	}
-	namespace := namespaceInput.String()
 
 	cmi := cc.CoreV1().ConfigMaps(namespace)
 
@@ -215,14 +218,12 @@ func (c *configMapModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	// Get the ConfigMap
 	if cm != nil {
 		// Check if the immutable field matches the desired state (only if immutable input is provided)
-		var immutableInput blackstart.Input
-		immutableInput, err = ctx.Input(inputImmutable)
-		if err != nil {
-			return false, err
+		desiredImmutablePtr, immutableErr := blackstart.ContextInputAs[*bool](ctx, inputImmutable, false)
+		if immutableErr != nil {
+			return false, immutableErr
 		}
-		if immutableInput.Any() != nil {
-			// immutableInput is provided and not nil
-			desiredImmutable := immutableInput.Bool()
+		if desiredImmutablePtr != nil {
+			desiredImmutable := *desiredImmutablePtr
 			if cm.Immutable == nil {
 				return false, nil
 			}
@@ -253,17 +254,15 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 		return fmt.Errorf("client input is not a Kubernetes clientset")
 	}
 
-	nameInput, err := ctx.Input(inputName)
+	name, err := blackstart.ContextInputAs[string](ctx, inputName, true)
 	if err != nil {
 		return err
 	}
-	name := nameInput.String()
 
-	namespaceInput, err := ctx.Input(inputNamespace)
+	namespace, err := blackstart.ContextInputAs[string](ctx, inputNamespace, true)
 	if err != nil {
 		return err
 	}
-	namespace := namespaceInput.String()
 
 	cmi := client.CoreV1().ConfigMaps(namespace)
 
@@ -302,14 +301,13 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 			}
 
 			// Only set immutable if the input is provided and not nil
-			var immutableInput blackstart.Input
-			immutableInput, err = ctx.Input(inputImmutable)
-			if err != nil {
-				return err
+			desiredImmutablePtr, immutableErr := blackstart.ContextInputAs[*bool](ctx, inputImmutable, false)
+			if immutableErr != nil {
+				return immutableErr
 			}
 
-			if immutableInput.Any() != nil {
-				desiredImmutable := immutableInput.Bool()
+			if desiredImmutablePtr != nil {
+				desiredImmutable := *desiredImmutablePtr
 				newCm.Immutable = &desiredImmutable
 			}
 
@@ -328,14 +326,12 @@ func (c *configMapModule) Set(ctx blackstart.ModuleContext) error {
 		needsUpdate := false
 
 		// Check if we need to update the immutable field (only if immutable input is provided)
-		var immutableInput blackstart.Input
-		immutableInput, err = ctx.Input(inputImmutable)
-		if err != nil {
-			return err
+		desiredImmutablePtr, immutableErr := blackstart.ContextInputAs[*bool](ctx, inputImmutable, false)
+		if immutableErr != nil {
+			return immutableErr
 		}
-		if immutableInput.Any() != nil {
-			// immutableInput is provided and not nil
-			desiredImmutable := immutableInput.Bool()
+		if desiredImmutablePtr != nil {
+			desiredImmutable := *desiredImmutablePtr
 			currentImmutable := cm.Immutable
 
 			if currentImmutable == nil || desiredImmutable != *currentImmutable {
