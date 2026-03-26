@@ -25,6 +25,10 @@ func (s *secretValueModule) Info() blackstart.ModuleInfo {
 		Id:          "kubernetes_secret_value",
 		Name:        "Kubernetes Secret Value",
 		Description: "Manages key-value pairs in a Kubernetes Secret resource.\n\n" + updatePolicyDocs,
+		Requirements: []string{
+			"The Kubernetes identity must be authorized to read and update Secrets in the target namespace.",
+			"Required Secret verbs for this module: `get`, `update`.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputSecret: {
 				Description: "Secret resource",

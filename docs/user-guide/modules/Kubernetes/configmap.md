@@ -15,6 +15,14 @@ Manages a Kubernetes ConfigMap resource, but not content.
   [Immutable ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/#configmap-immutable)
   for more information.
 
+## Requirements
+
+- The target namespace must exist.
+
+- The Kubernetes identity must be authorized for ConfigMap operations in the target namespace.
+
+- Required ConfigMap verbs: `get`, `create`, `update`, `patch`, `delete`.
+
 ## Inputs
 
 | Id        | Description                                                  | Type                 | Required |

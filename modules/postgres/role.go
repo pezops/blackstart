@@ -54,6 +54,10 @@ func (r roleModule) Info() blackstart.ModuleInfo {
 		Id:          "postgres_role",
 		Name:        "PostgreSQL Role",
 		Description: "Module to manage PostgreSQL Roles.",
+		Requirements: []string{
+			"A valid Postgres `connection` input must be provided.",
+			"The executing database user must be a member of a role with `CREATEROLE`.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputName: {
 				Description: "Id of the Role to manage.",

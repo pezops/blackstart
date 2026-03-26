@@ -353,6 +353,12 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 		Description: "Ensures that a Postgres role has the specified Permission on a resource.\n\n" +
 			"If multiple values are provided for `role`, `permission`, `schema`, or `resource`, " +
 			"Blackstart expands all possible combinations of the Operation and applies them all.",
+		Requirements: []string{
+			"A valid Postgres `connection` input must be provided.",
+			"The database user of the `connection` must be a member of a role that has `ADMIN OPTION` on the target roles.",
+			"Target roles/users and target resources must exist for the selected `scope`.",
+			"For `TABLE` scope, both schema and table must exist and be addressable by the user.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputConnection: {
 				Description: "database connection to the managed Postgres instance.",

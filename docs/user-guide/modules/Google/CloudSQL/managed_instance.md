@@ -8,12 +8,6 @@ Manages a Google CloudSQL instance. When managed, the module will ensure that th
 identity is a member of the `cloudsqlsuperuser` role on the instance. The instance is then usable
 for further operations.
 
-**Requirements**
-
-- The CloudSQL instance must exist.
-- The instance must have IAM authentication enabled.
-- The current workload identity must have the `roles/cloudsql.admin` role on the instance.
-
 **Notes**
 
 - This module does not create or delete the CloudSQL instance, it only manages the IAM user access.
@@ -21,6 +15,26 @@ for further operations.
   created and deleted as needed.
 - When the module is set to not exist, the current workload identity is removed from the
   `cloudsqlsuperuser` role, but the user itself is not deleted.
+- Cloud SQL for SQL Server does not support IAM authentication for database operations and is not
+  supported by this module.
+
+## Requirements
+
+- The CloudSQL instance must exist.
+
+- The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled
+  on the project.
+
+- The instance must have
+  [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth)
+  enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.
+
+- The Blackstart service account must have permission to manage, connect, and login to the database
+  instance. Suggested pre-defined roles are
+  [`roles/cloudsql.admin`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.admin),
+  [`roles/cloudsql.client`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.client),
+  and
+  [`roles/cloudsql.instanceUser`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.instanceUser).
 
 ## Inputs
 

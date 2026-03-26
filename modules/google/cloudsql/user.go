@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pezops/blackstart/util"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
@@ -41,9 +42,24 @@ type user struct {
 
 func (c *user) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
-		Id:          "google_cloudsql_user",
-		Name:        "Google CloudSQL user",
-		Description: "Ensures that a CloudSQL user exists with the specified parameters.",
+		Id:   "google_cloudsql_user",
+		Name: "Google CloudSQL user",
+		Description: util.CleanString(
+			`
+Ensures that a CloudSQL user exists with the specified parameters. In alignment with Blackstart's security best practices, this module only supports managing IAM users and service accounts, and does not support built-in users.
+
+**Notes**
+
+- Cloud SQL for SQL Server does not support IAM authentication for database operations and is not supported by this module. Use Active Directory authentication instead for SQL Server instances.
+`,
+		),
+		Requirements: []string{
+			"The CloudSQL instance must exist.",
+			"The IAM user or service account specified must exist.",
+			"The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled on the project.",
+			"The instance must have [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.",
+			"The Blackstart service account must have permission to manage the database instance. The suggested pre-defined role is [`roles/cloudsql.admin`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.admin).",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputInstance: {
 				Description: "CloudSQL instance ID.",
@@ -61,7 +77,7 @@ func (c *user) Info() blackstart.ModuleInfo {
 				Required:    false,
 			},
 			inputUser: {
-				Description: "username for the CloudSQL user.",
+				Description: "Username for the CloudSQL user.",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},

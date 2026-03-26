@@ -6,6 +6,16 @@ title: postgres_connection
 
 Connection to a PostgreSQL database.
 
+## Requirements
+
+- The Postgres server must be reachable from the Blackstart runtime.
+
+- The provided credentials must be valid for the target database.
+
+- The provided user must have permission to connect to the target database.
+
+- TLS and `sslmode` settings must match the server configuration.
+
 ## Inputs
 
 | Id       | Description                                                                                                                                                | Type   | Required |

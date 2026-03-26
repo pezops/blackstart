@@ -98,6 +98,9 @@ type ModuleInfo struct {
 	// what the module does and how it should be used.
 	Description string
 
+	// Requirements is an optional list of prerequisites for using the module.
+	Requirements []string
+
 	// Inputs is a map of input names to their configuration. This is used to provide context
 	// about what inputs the module requires and how they should be used.
 	Inputs map[string]InputValue

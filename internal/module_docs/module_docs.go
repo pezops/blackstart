@@ -25,6 +25,15 @@ title: {{ .Id }}
 
 {{ .Description }}
 
+{{- if .Requirements }}
+
+## Requirements
+{{- range $requirement := .Requirements }}
+
+- {{ $requirement }}
+{{- end }}
+{{- end }}
+
 ## Inputs
 {{- if .Inputs }}
 
