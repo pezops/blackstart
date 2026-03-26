@@ -114,9 +114,14 @@ func (r roleModule) Validate(op blackstart.Operation) error {
 			if !o.IsStatic() {
 				continue
 			}
-			_, err := blackstart.InputAs[string](o, true)
+			value, err := blackstart.InputAs[string](o, true)
 			if err != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", p, err)
+			}
+			if p == inputName {
+				if validationErr := validatePostgresQuotedIdentifier(value); validationErr != nil {
+					return fmt.Errorf("parameter %s is invalid: %w", p, validationErr)
+				}
 			}
 		}
 	}
@@ -171,6 +176,9 @@ func (r roleModule) createTargetRole(ctx blackstart.ModuleContext) error {
 	name, err := blackstart.ContextInputAs[string](ctx, inputName, true)
 	if err != nil {
 		return err
+	}
+	if err = validatePostgresQuotedIdentifier(name); err != nil {
+		return fmt.Errorf("invalid input %s: %w", inputName, err)
 	}
 	r.target = newRole(name)
 

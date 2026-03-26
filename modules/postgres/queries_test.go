@@ -36,47 +36,38 @@ WHERE column = $1
 
 }
 
-func TestValidateIdentifier(t *testing.T) {
+func TestValidateQuotedIdentifier(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
 		valid      bool
 	}{
 		{
-			name:       "valid_identifier",
-			identifier: "public",
+			name:       "valid_iam_style",
+			identifier: "posturerules-worker-svc@appomni-sfdc-demo.iam",
 			valid:      true,
 		},
 		{
-			name:       "valid_with_underscore",
-			identifier: "blackstart_grant_test_orders",
+			name:       "valid_standard",
+			identifier: "blackstart_role",
 			valid:      true,
 		},
 		{
-			name:       "valid_with_uppercase",
-			identifier: "BlackstartRole",
-			valid:      true,
-		},
-		{
-			name:       "invalid_first_character_digit",
-			identifier: "1public",
+			name:       "invalid_quote_character",
+			identifier: `bad"role`,
 			valid:      false,
 		},
 		{
-			name:       "invalid_with_hyphen",
-			identifier: "blackstart-role",
-			valid:      false,
-		},
-		{
-			name:       "invalid_identifier",
-			identifier: "public;",
+			name:       "invalid_control_character",
+			identifier: "bad\nrole",
 			valid:      false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
-				err := validatePostgresIdentifier(tt.identifier)
+				err := validatePostgresQuotedIdentifier(tt.identifier)
 				if tt.valid {
 					require.NoError(t, err)
 				} else {

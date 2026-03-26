@@ -373,7 +373,7 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 			name: "instance_scope_rejects_invalid_permission_role_identifier",
 			inputs: map[string]blackstart.Input{
 				inputRole:       blackstart.NewInputFromValue("role_a"),
-				inputPermission: blackstart.NewInputFromValue("bad-role"),
+				inputPermission: blackstart.NewInputFromValue("bad\"role"),
 				inputScope:      blackstart.NewInputFromValue("instance"),
 			},
 			wantErr: `invalid permission`,
@@ -427,7 +427,7 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 		{
 			name: "rejects_invalid_role_identifier",
 			inputs: map[string]blackstart.Input{
-				inputRole:       blackstart.NewInputFromValue("bad-role"),
+				inputRole:       blackstart.NewInputFromValue("bad\"role"),
 				inputPermission: blackstart.NewInputFromValue("SELECT"),
 				inputSchema:     blackstart.NewInputFromValue("public"),
 				inputResource:   blackstart.NewInputFromValue("orders"),
@@ -667,4 +667,52 @@ func TestGrantQueries_RevokeRejectsInvalidPermissions(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestGrantQueryRendering_QuotedIdentifierBoundaries(t *testing.T) {
+	t.Run("database_scope_keeps_permission_unquoted_and_identifiers_quoted", func(t *testing.T) {
+		target := &grant{
+			Role:       "iam-role@appomni-demo.iam",
+			Permission: "CONNECT",
+			Resource:   "app-db-prod",
+			Scope:      "DATABASE",
+		}
+
+		query, _, err := getGrantSetQuery(target)
+		require.NoError(t, err)
+		require.Contains(t, query, `GRANT CONNECT ON DATABASE "app-db-prod" TO "iam-role@appomni-demo.iam";`)
+		require.NotContains(t, query, `"CONNECT"`)
+	})
+
+	t.Run("table_scope_keeps_permission_unquoted_and_identifiers_quoted", func(t *testing.T) {
+		target := &grant{
+			Role:       "iam-role@appomni-demo.iam",
+			Permission: "SELECT",
+			Schema:     "orders-api",
+			Resource:   "daily-rollup",
+			Scope:      "TABLE",
+		}
+
+		query, _, err := getGrantSetQuery(target)
+		require.NoError(t, err)
+		require.Contains(
+			t,
+			query,
+			`GRANT SELECT ON TABLE "orders-api"."daily-rollup" TO "iam-role@appomni-demo.iam";`,
+		)
+		require.NotContains(t, query, `"SELECT"`)
+	})
+
+	t.Run("non_instance_scope_rejects_identifier_like_permission", func(t *testing.T) {
+		target := &grant{
+			Role:       "iam-role@appomni-demo.iam",
+			Permission: "pg-read-role@appomni-demo.iam",
+			Resource:   "app-db-prod",
+			Scope:      "DATABASE",
+		}
+
+		_, _, err := getGrantSetQuery(target)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid")
+	})
 }

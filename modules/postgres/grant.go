@@ -167,7 +167,7 @@ func normalizeScopeTargets(
 
 // validateGrantRole validates a grant role identifier.
 func validateGrantRole(roleName string) error {
-	if roleErr := validatePostgresIdentifier(roleName); roleErr != nil {
+	if roleErr := validatePostgresQuotedIdentifier(roleName); roleErr != nil {
 		return fmt.Errorf("invalid role %q: %w", roleName, roleErr)
 	}
 	return nil
@@ -185,7 +185,9 @@ func validateGrantPermission(grantScope scope, permission string) error {
 	switch grantScope {
 	case scopes.instance:
 		// INSTANCE scope models role membership: permission is the role being granted.
-		if permErr := validatePostgresIdentifier(perm); permErr != nil {
+		// This is the only place that raw identifiers are accepted as permissions, and these are
+		// rendered as quoted identifiers in SQL, so this validates accordingly.
+		if permErr := validatePostgresQuotedIdentifier(perm); permErr != nil {
 			return fmt.Errorf("invalid permission %q for scope %s: %w", permission, grantScope, permErr)
 		}
 	case scopes.database:
@@ -316,13 +318,13 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 			}
 			for _, schema := range schemas {
 				if schema != "" {
-					if schemaErr := validatePostgresIdentifier(schema); schemaErr != nil {
+					if schemaErr := validatePostgresQuotedIdentifier(schema); schemaErr != nil {
 						return nil, schemaErr
 					}
 				}
 				for _, resource := range resources {
 					if resource != "" {
-						if resourceErr := validatePostgresIdentifier(resource); resourceErr != nil {
+						if resourceErr := validatePostgresQuotedIdentifier(resource); resourceErr != nil {
 							return nil, resourceErr
 						}
 					}
@@ -519,8 +521,8 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 		if rolesErr != nil {
 			return fmt.Errorf("parameter %s is invalid: %w", inputRole, rolesErr)
 		}
-		for _, role := range roles {
-			if validationErr := validateGrantRole(role); validationErr != nil {
+		for _, roleName := range roles {
+			if validationErr := validateGrantRole(roleName); validationErr != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", inputRole, validationErr)
 			}
 		}
@@ -552,7 +554,7 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 			if strings.TrimSpace(v) == "" {
 				continue
 			}
-			if idErr := validatePostgresIdentifier(v); idErr != nil {
+			if idErr := validatePostgresQuotedIdentifier(v); idErr != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", p, idErr)
 			}
 		}
