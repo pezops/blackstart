@@ -78,36 +78,23 @@ func cleanQuery(input string) string {
 	return cleaned
 }
 
-// validatePostgresIdentifier checks that the given identifier is a valid PostgreSQL identifier.
-func validatePostgresIdentifier(id string) error {
-	// check non-empty
+// validatePostgresQuotedIdentifier validates identifiers that will be rendered inside double
+// quotes in SQL. This permits more complex role names while rejecting characters that would break
+// quoted SQL identifier rendering.
+func validatePostgresQuotedIdentifier(id string) error {
 	if id == "" {
 		return fmt.Errorf("identifier cannot be empty")
 	}
-
-	// check length
 	if len(id) > 63 {
 		return fmt.Errorf("identifier cannot be longer than 63 characters")
 	}
-
-	// Identifiers must start with a letter or underscore.
-	for i, c := range id {
-		if i == 0 {
-			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' {
-				continue
-			}
-			return fmt.Errorf("invalid first character in identifier: %c", c)
+	for _, c := range id {
+		if c == '"' {
+			return fmt.Errorf("invalid character in identifier: %c", c)
 		}
-
-		// Remaining characters can be letters, digits, underscore, or dollar sign.
-		if (c >= 'a' && c <= 'z') ||
-			(c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') ||
-			c == '_' ||
-			c == '$' {
-			continue
+		if c < 32 {
+			return fmt.Errorf("invalid character in identifier: %c", c)
 		}
-		return fmt.Errorf("invalid character in identifier: %c", c)
 	}
 	return nil
 }
