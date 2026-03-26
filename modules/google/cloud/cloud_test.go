@@ -3,9 +3,11 @@ package cloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
 )
 
@@ -162,4 +164,34 @@ func TestIamUser(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestIamUser_ServiceAccountFromJSON(t *testing.T) {
+	creds := &google.Credentials{
+		JSON: []byte(`{"type":"service_account","client_email":"svc@test-proj.iam.gserviceaccount.com"}`),
+	}
+
+	got, err := iamUserWithResolver(
+		context.Background(),
+		creds,
+		func(_ context.Context, _ *google.Credentials) (string, error) {
+			return "", errors.New("should not be called")
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "svc@test-proj.iam.gserviceaccount.com", got)
+}
+
+func TestIamUser_EmptyJSONFallsBackToTokenInspection(t *testing.T) {
+	creds := &google.Credentials{}
+
+	got, err := iamUserWithResolver(
+		context.Background(),
+		creds,
+		func(_ context.Context, _ *google.Credentials) (string, error) {
+			return "wi-principal@example.com", nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "wi-principal@example.com", got)
 }

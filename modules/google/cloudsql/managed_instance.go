@@ -195,12 +195,28 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		return false, fmt.Errorf("instance %s does not exist in project %s", m.target.instance, m.target.project)
 	}
 
+	iamAuthEnabled, err := m.checkInstanceIamAuthenticationEnabled(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check instance IAM authentication setting: %w", err)
+	}
+	if !iamAuthEnabled {
+		return false, fmt.Errorf(
+			"instance %s in project %s does not have cloudsql.iam_authentication enabled",
+			m.target.instance,
+			m.target.project,
+		)
+	}
+
 	db, err := m.getConnection(ctx)
 	if err != nil {
-		if strings.Contains(err.Error(), "Cloud SQL IAM user authentication failed for user") {
-			return false, fmt.Errorf(
-				"failed to open database connection: ensure the instance has IAM authentication enabled: %w", err,
-			)
+		if isManagedInstanceBootstrapConnectionError(err) {
+			// A failed IAM login here commonly means the IAM DB user/role binding has not been
+			// bootstrapped yet. Treat this as "not in desired state" so Set() can reconcile.
+			// For doesNotExist mode, an auth failure indicates the managed user/path is already absent.
+			if ctx.DoesNotExist() {
+				return true, nil
+			}
+			return false, nil
 		}
 		return false, fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -249,7 +265,7 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 		return err
 	}
 
-	userType := iamUserType(m.creds)
+	userType := iamUserType(m.creds, iamUser)
 
 	err = validateUser(iamUser)
 	if err != nil {
@@ -270,7 +286,7 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	}
 	mgmtUserModule := user{}
 	mgmtUserMctx := blackstart.OpContext(ctx, &mgmtUserOp)
-	mgmtUserExists, _ := mgmtUserModule.Check(ctx)
+	mgmtUserExists, _ := mgmtUserModule.Check(mgmtUserMctx)
 
 	// Leave the IAM user in place when disabling management using the `doesNotExist` flag, just
 	// revoke the role. The management user being removed is a very special case. It seems
@@ -529,6 +545,27 @@ func (m *managedInstance) checkInstanceExists(ctx blackstart.ModuleContext) (boo
 	return false, nil
 }
 
+// checkInstanceIamAuthenticationEnabled returns true when the instance has the flag
+// 'cloudsql.iam_authentication' enabled.
+func (m *managedInstance) checkInstanceIamAuthenticationEnabled(ctx blackstart.ModuleContext) (bool, error) {
+	instance, err := m.sqlService.Instances.Get(m.target.project, m.target.instance).Context(ctx).Do()
+	if err != nil {
+		return false, err
+	}
+	if instance.Settings == nil {
+		return false, nil
+	}
+	for _, flag := range instance.Settings.DatabaseFlags {
+		if flag == nil {
+			continue
+		}
+		if strings.EqualFold(flag.Name, "cloudsql.iam_authentication") {
+			return strings.EqualFold(flag.Value, "on"), nil
+		}
+	}
+	return false, nil
+}
+
 // checkIfSuperuser checks if the current user is a member of the `cloudsqlsuperuser` role on the
 // instance.
 func checkIfSuperuser(ctx context.Context, db *sql.DB) (bool, error) {
@@ -542,6 +579,16 @@ func checkIfSuperuser(ctx context.Context, db *sql.DB) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// isManagedInstanceBootstrapConnectionError detects connection failures that should be treated as
+// a check miss (not a fatal error) so managed-instance reconciliation can bootstrap itself.
+func isManagedInstanceBootstrapConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sqlstate 28p01")
 }
 
 // validateUser checks if the provided user is valid for a Postgres role.

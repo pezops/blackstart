@@ -223,7 +223,10 @@ func (c *user) user(ctx blackstart.ModuleContext) (*sqladmin.User, error) {
 
 	switch c.target.userType {
 	case userCloudIamServiceAccount:
-		username += fmt.Sprintf("@%s.iam", c.target.project)
+		username, err = normalizeCloudSQLServiceAccountUsername(username, c.target.project)
+		if err != nil {
+			return nil, err
+		}
 	default:
 	}
 
@@ -239,6 +242,34 @@ func (c *user) user(ctx blackstart.ModuleContext) (*sqladmin.User, error) {
 	}
 
 	return sqlUser, nil
+}
+
+// normalizeCloudSQLServiceAccountUsername normalizes service-account identities into CloudSQL
+// username format: <service-account-name>@<project>.iam.
+func normalizeCloudSQLServiceAccountUsername(username, project string) (string, error) {
+	trimmed := strings.TrimSpace(username)
+	if trimmed == "" {
+		return "", fmt.Errorf("service account username cannot be empty")
+	}
+
+	// Full GSA email -> CloudSQL format.
+	if strings.HasSuffix(trimmed, ".iam.gserviceaccount.com") {
+		return strings.TrimSuffix(trimmed, ".gserviceaccount.com"), nil
+	}
+
+	// Already CloudSQL service-account format.
+	if strings.HasSuffix(trimmed, ".iam") && strings.Contains(trimmed, "@") {
+		return trimmed, nil
+	}
+
+	// Bare service-account name -> CloudSQL format.
+	if strings.Contains(trimmed, "@") {
+		return "", fmt.Errorf("invalid service account username format: %s", trimmed)
+	}
+	if strings.TrimSpace(project) == "" {
+		return "", fmt.Errorf("project cannot be empty for service account username normalization")
+	}
+	return fmt.Sprintf("%s@%s.iam", trimmed, project), nil
 }
 
 // createUser creates the user in CloudSQL. If the user already exists, it is deleted first.
