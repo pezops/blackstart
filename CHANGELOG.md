@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Add improved validation for quoted Postgres identifiers (#51) by @mbrancato
+
 ## [0.1.5] - 2026-03-26
 
 ### 🐛 Bug Fixes
