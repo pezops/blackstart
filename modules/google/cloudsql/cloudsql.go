@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"cloud.google.com/go/cloudsqlconn"
@@ -95,6 +96,9 @@ func init() {
 
 var ErrRegionNotProvidedNotFound = errors.New("region not provided and not found")
 var ErrProjectNotProvidedNotFound = errors.New("project not provided and not found")
+var cloudSQLServiceAccountIdentityPattern = regexp.MustCompile(
+	`^[^@\s]+@[^@\s]+\.iam(?:\.gserviceaccount\.com)?$`,
+)
 
 // connectionConfig is the configuration for a connection to a CloudSQL instance. It provides some
 // convenience methods for working with the CloudSQL instance.
@@ -255,12 +259,21 @@ func postgresIamUser(ctx context.Context, creds *google.Credentials) (string, er
 	return u, nil
 }
 
-// iamUserType returns the user type for the given credentials.
-func iamUserType(creds *google.Credentials) string {
+// iamUserType returns the CloudSQL IAM user type for the resolved IAM identity. It classifies
+// service accounts by identity shape first, then falls back to credential JSON metadata.
+func iamUserType(creds *google.Credentials, iamUser string) string {
+	normalized := strings.TrimSpace(strings.ToLower(iamUser))
+	if cloudSQLServiceAccountIdentityPattern.MatchString(normalized) {
+		return userCloudIamServiceAccount
+	}
+
 	type tokenUserSchema struct {
 		UserType string `json:"type"`
 	}
 	var tokenUser tokenUserSchema
+	if creds == nil || len(creds.JSON) == 0 {
+		return userCloudIamUser
+	}
 	err := json.Unmarshal(creds.JSON, &tokenUser)
 	if err == nil && tokenUser.UserType != "authorized_user" {
 		return userCloudIamServiceAccount

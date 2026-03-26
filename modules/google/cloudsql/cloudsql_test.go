@@ -127,3 +127,89 @@ func TestTargetConnectionConfig_connectionIdentifier(t *testing.T) {
 		},
 	)
 }
+
+func TestIamUserType(t *testing.T) {
+	t.Run(
+		"service account from cloudsql iam username suffix", func(t *testing.T) {
+			got := iamUserType(nil, "blackstart-sa@test-cr-249905.iam")
+			assert.Equal(t, userCloudIamServiceAccount, got)
+		},
+	)
+
+	t.Run(
+		"service account from full gsa email suffix", func(t *testing.T) {
+			got := iamUserType(nil, "blackstart-sa@test-cr-249905.iam.gserviceaccount.com")
+			assert.Equal(t, userCloudIamServiceAccount, got)
+		},
+	)
+
+	t.Run(
+		"authorized user from email identity", func(t *testing.T) {
+			got := iamUserType(nil, "person@example.com")
+			assert.Equal(t, userCloudIamUser, got)
+		},
+	)
+
+	t.Run(
+		"non-email .iam suffix does not classify as service account", func(t *testing.T) {
+			got := iamUserType(nil, "bob.iam")
+			assert.Equal(t, userCloudIamUser, got)
+		},
+	)
+
+	t.Run(
+		"fallback to credentials json type service account", func(t *testing.T) {
+			creds := &google.Credentials{
+				JSON: []byte(`{"type":"service_account","client_email":"svc@test-proj.iam.gserviceaccount.com"}`),
+			}
+			got := iamUserType(creds, "")
+			assert.Equal(t, userCloudIamServiceAccount, got)
+		},
+	)
+
+	t.Run(
+		"fallback to credentials json type authorized user", func(t *testing.T) {
+			creds := &google.Credentials{
+				JSON: []byte(`{"type":"authorized_user"}`),
+			}
+			got := iamUserType(creds, "")
+			assert.Equal(t, userCloudIamUser, got)
+		},
+	)
+}
+
+func TestNormalizeCloudSQLServiceAccountUsername(t *testing.T) {
+	t.Run(
+		"accepts existing cloudsql format", func(t *testing.T) {
+			got, err := normalizeCloudSQLServiceAccountUsername("blackstart-sa@test-cr-249905.iam", "test-cr-249905")
+			require.NoError(t, err)
+			assert.Equal(t, "blackstart-sa@test-cr-249905.iam", got)
+		},
+	)
+
+	t.Run(
+		"converts full gsa email", func(t *testing.T) {
+			got, err := normalizeCloudSQLServiceAccountUsername(
+				"blackstart-sa@test-cr-249905.iam.gserviceaccount.com",
+				"test-cr-249905",
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "blackstart-sa@test-cr-249905.iam", got)
+		},
+	)
+
+	t.Run(
+		"expands bare username using project", func(t *testing.T) {
+			got, err := normalizeCloudSQLServiceAccountUsername("blackstart-sa", "test-cr-249905")
+			require.NoError(t, err)
+			assert.Equal(t, "blackstart-sa@test-cr-249905.iam", got)
+		},
+	)
+
+	t.Run(
+		"rejects non service-account email format", func(t *testing.T) {
+			_, err := normalizeCloudSQLServiceAccountUsername("person@example.com", "test-cr-249905")
+			require.Error(t, err)
+		},
+	)
+}
