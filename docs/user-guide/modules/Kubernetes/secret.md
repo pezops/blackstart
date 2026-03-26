@@ -15,6 +15,15 @@ Manages a Kubernetes Secret resource, but not content.
   [Immutable Secrets](https://kubernetes.io/docs/concepts/configuration/secret/#secret-immutable)
   for more information.
 
+## Requirements
+
+- The target namespace must exist.
+
+- The configured Kubernetes identity must be authorized for Secret operations in the target
+  namespace.
+
+- Required Secret verbs: `get`, `create`, `update`, `patch`, `delete`.
+
 ## Inputs
 
 | Id        | Description                                                                                                 | Type                 | Required |

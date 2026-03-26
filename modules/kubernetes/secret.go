@@ -67,6 +67,11 @@ Manages a Kubernetes Secret resource, but not content.
   for more information.
 `,
 		),
+		Requirements: []string{
+			"The target namespace must exist.",
+			"The configured Kubernetes identity must be authorized for Secret operations in the target namespace.",
+			"Required Secret verbs: `get`, `create`, `update`, `patch`, `delete`.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputName: {
 				Description: "Name of the Secret",

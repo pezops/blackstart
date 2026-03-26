@@ -6,6 +6,12 @@ title: postgres_role
 
 Module to manage PostgreSQL Roles.
 
+## Requirements
+
+- A valid Postgres `connection` input must be provided.
+
+- The executing database user must be a member of a role with `CREATEROLE`.
+
 ## Inputs
 
 | Id          | Description                                                | Type   | Required |

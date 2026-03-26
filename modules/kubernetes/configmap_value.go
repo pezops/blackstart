@@ -25,6 +25,10 @@ func (c *configMapValueModule) Info() blackstart.ModuleInfo {
 		Id:          "kubernetes_configmap_value",
 		Name:        "Kubernetes ConfigMap Value",
 		Description: "Manages key-value pairs in a Kubernetes ConfigMap resource.\n\n" + updatePolicyDocs,
+		Requirements: []string{
+			"The Kubernetes identity must be authorized to read and update ConfigMaps in the target namespace.",
+			"Required ConfigMap verbs for this module: `get`, `update`.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputConfigMap: {
 				Description: "ConfigMap resource",

@@ -58,6 +58,11 @@ Manages a Kubernetes ConfigMap resource, but not content.
   for more information.
 `,
 		),
+		Requirements: []string{
+			"The target namespace must exist.",
+			"The Kubernetes identity must be authorized for ConfigMap operations in the target namespace.",
+			"Required ConfigMap verbs: `get`, `create`, `update`, `patch`, `delete`.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputName: {
 				Description: "Name of the ConfigMap",

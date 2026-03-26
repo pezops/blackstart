@@ -28,6 +28,11 @@ func (c *clientModule) Info() blackstart.ModuleInfo {
 		Id:          "kubernetes_client",
 		Name:        "Kubernetes Client",
 		Description: "Establishes a connection to a Kubernetes cluster and provides a client for other modules to use.",
+		Requirements: []string{
+			"A valid Kubernetes kubeconfig or in-cluster identity must be available.",
+			"If `context` is provided, that kubeconfig context must exist.",
+			"The identity used by Blackstart must be authorized to call Kubernetes discovery APIs.",
+		},
 		Inputs: map[string]blackstart.InputValue{
 			inputContext: {
 				Description: "The Kubernetes context to use. If not provided, uses the current-context from kubeconfig, or in-cluster config if running in a Kubernetes cluster.",

@@ -6,6 +6,14 @@ title: kubernetes_client
 
 Establishes a connection to a Kubernetes cluster and provides a client for other modules to use.
 
+## Requirements
+
+- A valid Kubernetes kubeconfig or in-cluster identity must be available.
+
+- If `context` is provided, that kubeconfig context must exist.
+
+- The identity used by Blackstart must be authorized to call Kubernetes discovery APIs.
+
 ## Inputs
 
 | Id      | Description                                                                                                                                        | Type   | Required |

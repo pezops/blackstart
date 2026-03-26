@@ -16,6 +16,12 @@ and Secrets. The following update policies are supported:
 - `preserve_any` - Any existing value will be preserved.
 - `fail` - If the new value differs from the existing value, the operation will fail.
 
+## Requirements
+
+- The Kubernetes identity must be authorized to read and update ConfigMaps in the target namespace.
+
+- Required ConfigMap verbs for this module: `get`, `update`.
+
 ## Inputs
 
 | Id            | Description                                                    | Type                   | Required |
