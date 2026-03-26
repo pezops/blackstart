@@ -6,6 +6,10 @@
 
 - Detect correct Workload Identity principals and normalize IAM service-account usernames (#50) by @mbrancato
 
+### 📚 Documentation
+
+- Add support for module requirements section in documentation (#49) by @mbrancato
+
 ## [0.1.4] - 2026-03-25
 
 ### 🚀 Features
