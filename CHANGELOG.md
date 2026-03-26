@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Detect correct Workload Identity principals and normalize IAM service-account usernames (#50) by @mbrancato
+
 ## [0.1.4] - 2026-03-25
 
 ### 🚀 Features
