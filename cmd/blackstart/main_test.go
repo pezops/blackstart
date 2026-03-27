@@ -240,6 +240,82 @@ func TestRunInK8sMode_MultiNamespaceContinuesAfterEmptyNamespace(t *testing.T) {
 	require.True(t, found, "workflow in second namespace should have been processed")
 }
 
+func TestRunInK8sMode_ContinuesWhenOneWorkflowHasDuplicateOperationIDs(t *testing.T) {
+	scheme := runtime.NewScheme()
+	err := v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	validWorkflow := &v1alpha1.Workflow{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "blackstart.pezops.github.io/v1alpha1",
+			Kind:       "Workflow",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "valid-workflow",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.WorkflowSpec{
+			Operations: []v1alpha1.Operation{},
+		},
+	}
+
+	invalidWorkflow := &v1alpha1.Workflow{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "blackstart.pezops.github.io/v1alpha1",
+			Kind:       "Workflow",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "invalid-duplicate-ops",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.WorkflowSpec{
+			Operations: []v1alpha1.Operation{
+				{
+					Id:     "dup",
+					Module: "nonexistent_module",
+				},
+				{
+					Id:     "dup",
+					Module: "nonexistent_module",
+				},
+			},
+		},
+	}
+
+	fakeClient := newFakeClientWithStatus(scheme, validWorkflow, invalidWorkflow)
+	statusClient, ok := fakeClient.(*fakeClientWithStatus)
+	require.True(t, ok, "expected fake client with status support")
+
+	restore := patchEnv(t, blackstart.K8sNamespaceEnv, "default")
+	defer restore()
+	restoreMode := patchEnv(t, blackstart.RuntimeModeEnv, "once")
+	defer restoreMode()
+
+	config, err := blackstart.ReadConfig()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	logger := blackstart.NewLogger(config)
+	ctx = context.WithValue(ctx, blackstart.LoggerKey, logger)
+	ctx = context.WithValue(ctx, blackstart.ConfigKey, config)
+
+	err = run(ctx, fakeClient)
+	require.NoError(t, err)
+
+	validRaw, found := statusClient.statusStore.Load("default/valid-workflow")
+	require.True(t, found, "valid workflow status should be updated")
+	validObj, ok := validRaw.(*v1alpha1.Workflow)
+	require.True(t, ok)
+	require.Equal(t, "true", validObj.Status.Successful)
+
+	invalidRaw, found := statusClient.statusStore.Load("default/invalid-duplicate-ops")
+	require.True(t, found, "invalid workflow status should be updated")
+	invalidObj, ok := invalidRaw.(*v1alpha1.Workflow)
+	require.True(t, ok)
+	require.Equal(t, "false", invalidObj.Status.Successful)
+	require.Contains(t, invalidObj.Status.Result, `duplicate operation id "dup"`)
+}
+
 func TestParseReconcileInterval(t *testing.T) {
 	tests := []struct {
 		name    string
