@@ -81,6 +81,11 @@ func (we *workflowExecution) execute(ctx context.Context) WorkflowResult {
 	var result WorkflowResult
 
 	result.Phase = phaseSetup
+	if duplicateID, duplicateOp := findDuplicateOperationID(we.w.Operations); duplicateOp != nil {
+		result.Op = duplicateOp
+		result.Err = fmt.Errorf("duplicate operation id %q in workflow", duplicateID)
+		return result
+	}
 	// Setup all operations and make sure all dependencies are captured.
 	result.TotalOperations = len(we.w.Operations)
 	for _, op := range we.w.Operations {
@@ -178,6 +183,20 @@ func (we *workflowExecution) execute(ctx context.Context) WorkflowResult {
 	}
 
 	return result
+}
+
+// findDuplicateOperationID returns the first duplicate operation ID and the corresponding
+// operation if one exists.
+func findDuplicateOperationID(ops []Operation) (string, *Operation) {
+	seen := make(map[string]struct{}, len(ops))
+	for i := range ops {
+		id := ops[i].Id
+		if _, ok := seen[id]; ok {
+			return id, &ops[i]
+		}
+		seen[id] = struct{}{}
+	}
+	return "", nil
 }
 
 // checkInputsOutputs will verify that all required inputs for an operation are present and

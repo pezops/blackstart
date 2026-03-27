@@ -256,6 +256,37 @@ func TestWorkflowExecution(t *testing.T) {
 	}
 }
 
+func TestWorkflowExecution_DuplicateOperationID(t *testing.T) {
+	wf := Workflow{
+		Name: "duplicate-op-id",
+		Operations: []Operation{
+			{
+				Id:     "dup",
+				Module: "test_module",
+				Inputs: map[string]Input{
+					testCheckResult: NewInputFromValue(true),
+					testSetResult:   NewInputFromValue(true),
+				},
+			},
+			{
+				Id:     "dup",
+				Module: "test_module",
+				Inputs: map[string]Input{
+					testCheckResult: NewInputFromValue(true),
+					testSetResult:   NewInputFromValue(true),
+				},
+			},
+		},
+	}
+
+	res := wf.Run(context.Background())
+	require.Error(t, res.Err)
+	require.Contains(t, res.Err.Error(), `duplicate operation id "dup"`)
+	require.NotNil(t, res.Op)
+	require.Equal(t, "dup", res.Op.Id)
+	require.Equal(t, phaseSetup, res.Phase)
+}
+
 // TestOpoSort tests the topological sorting of operations into an expected order.
 func TestOpoSort(t *testing.T) {
 	tests := []struct {
