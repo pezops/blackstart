@@ -18,7 +18,11 @@ expands all possible combinations of the Operation and applies them all.
 
 - Target roles/users and target resources must exist for the selected `scope`.
 
-- For `TABLE` scope, both schema and table must exist and be addressable by the user.
+- For `TABLE` and `SEQUENCE` scopes, both schema and resource must exist and be addressable by the
+  user.
+
+- For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, `schema` must be provided and `resource` must
+  reference a routine signature (for example `do_work(integer)`) unless `all` is true.
 
 ## Inputs
 
@@ -37,6 +41,57 @@ expands all possible combinations of the Operation and applies them all.
 No outputs are supported for this module
 
 ## Examples
+
+### Grant EXECUTE on a function
+
+```yaml
+id: grant-execute-function
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: EXECUTE
+  scope: FUNCTION
+  schema: public
+  resource: do_work(integer)
+```
+
+### Grant EXECUTE on all procedures in schema
+
+```yaml
+id: grant-execute-all-procedures
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: EXECUTE
+  scope: PROCEDURE
+  schema: public
+  all: true
+```
+
+### Grant EXECUTE on all routines in schema
+
+```yaml
+id: grant-execute-all-routines
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: EXECUTE
+  scope: ROUTINE
+  schema: public
+  all: true
+```
 
 ### Grant SELECT on all tables in a schema
 
