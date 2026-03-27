@@ -13,6 +13,7 @@ const (
 	inputSchema      = "schema"
 	inputResource    = "resource"
 	inputScope       = "scope"
+	inputAll         = "all"
 	inputName        = "name"
 	inputCreateDb    = "create_db"
 	inputCreateRole  = "create_role"

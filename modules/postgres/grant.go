@@ -68,6 +68,8 @@ type grant struct {
 	// Scope is the type of Resource where the Permission is to be applied. This might be a database,
 	// table, or schema.
 	Scope string
+	// AllTables indicates the grant should target all tables in Schema when Scope is TABLE.
+	AllTables bool
 }
 
 // normalizeRequiredStringList trims required list values and rejects empty entries.
@@ -110,7 +112,7 @@ func normalizeOptionalStringList(values []string) []string {
 // normalizeScopeTargets constrains schema/resource dimensions to the valid target model for each
 // scope and returns normalized schema/resource lists for expansion.
 func normalizeScopeTargets(
-	grantScope scope, schemas []string, resources []string,
+	grantScope scope, schemas []string, resources []string, allTables bool,
 ) ([]string, []string, error) {
 	switch grantScope {
 	case scopes.instance:
@@ -155,6 +157,14 @@ func normalizeScopeTargets(
 		// TABLE grants target schema-qualified tables. Set the default schema to public when omitted.
 		if len(schemas) == 1 && schemas[0] == "" {
 			schemas = []string{"public"}
+		}
+		if allTables {
+			if len(resources) > 1 || (len(resources) == 1 && resources[0] != "") {
+				return nil, nil, fmt.Errorf(
+					"input %q must be empty when %q is true", inputResource, inputAll,
+				)
+			}
+			return schemas, []string{""}, nil
 		}
 		if len(resources) == 1 && resources[0] == "" {
 			return nil, nil, fmt.Errorf("input %q must be provided when scope is TABLE", inputResource)
@@ -302,7 +312,14 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 	if err != nil {
 		return nil, err
 	}
-	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources)
+	allTables, err := blackstart.ContextInputAs[bool](mctx, inputAll, false)
+	if err != nil {
+		return nil, err
+	}
+	if allTables && normalizedScope != scopes.table {
+		return nil, fmt.Errorf("input %q is only supported when scope is TABLE", inputAll)
+	}
+	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources, allTables)
 	if err != nil {
 		return nil, err
 	}
@@ -335,6 +352,7 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 							Schema:     schema,
 							Resource:   resource,
 							Scope:      string(normalizedScope),
+							AllTables:  allTables,
 						},
 					)
 				}
@@ -391,6 +409,12 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 				Description: "Scope of the resource where the permission is to be applied. This might be a database, table, or schema.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
+			},
+			inputAll: {
+				Description: "Apply permissions to all resources of the scope (if supported) in the schema. When set, the resource input must be empty.",
+				Type:        reflect.TypeFor[bool](),
+				Required:    false,
+				Default:     false,
 			},
 		},
 		Outputs: map[string]blackstart.OutputValue{},
@@ -485,6 +509,18 @@ inputs:
   resource:
     - orders
     - invoices`,
+			"Grant SELECT on all tables in a schema": `id: grant-select-all-tables-in-public
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: reporting_user
+  permission: SELECT
+  scope: TABLE
+  schema: public
+  all: true`,
 		},
 	}
 }
@@ -513,6 +549,16 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 	grantScope, err := stringToScope(scopeValue)
 	if err != nil {
 		return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
+	}
+	allTables := false
+	if allTablesInput, ok := op.Inputs[inputAll]; ok && allTablesInput.IsStatic() {
+		allTables, err = blackstart.InputAs[bool](allTablesInput, false)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputAll, err)
+		}
+	}
+	if allTables && grantScope != scopes.table {
+		return fmt.Errorf("parameter %s is invalid: only supported when scope is TABLE", inputAll)
 	}
 
 	rolesInput := op.Inputs[inputRole]
@@ -556,6 +602,9 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 			}
 			if idErr := validatePostgresQuotedIdentifier(v); idErr != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", p, idErr)
+			}
+			if p == inputResource && allTables {
+				return fmt.Errorf("parameter %s is invalid: must be empty when %s is true", p, inputAll)
 			}
 		}
 	}
@@ -682,6 +731,18 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 		), target.Role, target.Resource}
 		return getGrantSchemaQuery, queryParams, nil
 	case scopes.table:
+		if target.AllTables {
+			if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+				queryParams := []interface{}{target.Role, target.Schema}
+				return getGrantAllTablesInSchemaAllQuery, queryParams, nil
+			}
+			queryParams := []interface{}{
+				target.Role,
+				target.Schema,
+				normalizeGrantPermissionToken(grantScope, target.Permission),
+			}
+			return getGrantAllTablesInSchemaQuery, queryParams, nil
+		}
 		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
 			queryParams := []interface{}{target.Role, target.Schema, target.Resource}
 			return getGrantTableAllQuery, queryParams, nil
@@ -740,7 +801,11 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 		if !slices.Contains(grantTablePermissions, perm) {
 			return "", nil, fmt.Errorf("invalid table Permission: %s", target.Permission)
 		}
-		tmpl, err = template.New("setGrantTable").Parse(setGrantTableTemplate)
+		if target.AllTables {
+			tmpl, err = template.New("setGrantAllTables").Parse(setGrantAllTablesTemplate)
+		} else {
+			tmpl, err = template.New("setGrantTable").Parse(setGrantTableTemplate)
+		}
 	default:
 		return "", nil, fmt.Errorf("no query for Scope: %s", target.Scope)
 	}
@@ -789,7 +854,11 @@ func getGrantRevokeQuery(target *grant) (string, []interface{}, error) {
 		if !slices.Contains(grantTablePermissions, perm) {
 			return "", nil, fmt.Errorf("invalid table Permission: %s", target.Permission)
 		}
-		tmpl, err = template.New("revokeGrantTable").Parse(setRevokeTableTemplate)
+		if target.AllTables {
+			tmpl, err = template.New("revokeGrantAllTables").Parse(setRevokeAllTablesTemplate)
+		} else {
+			tmpl, err = template.New("revokeGrantTable").Parse(setRevokeTableTemplate)
+		}
 	default:
 		return "", nil, fmt.Errorf("no revoke query for Scope: %s", target.Scope)
 	}
