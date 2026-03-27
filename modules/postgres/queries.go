@@ -93,6 +93,102 @@ SELECT
 FROM information_schema.sequences
 WHERE sequence_schema = $2;
 `
+	getGrantFunctionQuery = `
+SELECT COALESCE(
+  has_function_privilege($1, to_regprocedure(format('%I.%s', $3::text, $2::text)), $4),
+  false
+);
+`
+	getGrantAllFunctionsInSchemaQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_function_privilege($1, p.oid, $3)
+    ),
+    true
+  ) AS all_functions_ok
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $2
+  AND p.prokind = 'f';
+`
+	getGrantAllFunctionsInSchemaAllQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_function_privilege($1, p.oid, 'EXECUTE')
+    ),
+    true
+  ) AS all_functions_ok
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $2
+  AND p.prokind = 'f';
+`
+	getGrantProcedureQuery = `
+SELECT COALESCE(
+  has_function_privilege($1, to_regprocedure(format('%I.%s', $3::text, $2::text)), $4),
+  false
+);
+`
+	getGrantAllProceduresInSchemaQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_function_privilege($1, p.oid, $3)
+    ),
+    true
+  ) AS all_procedures_ok
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $2
+  AND p.prokind = 'p';
+`
+	getGrantAllProceduresInSchemaAllQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_function_privilege($1, p.oid, 'EXECUTE')
+    ),
+    true
+  ) AS all_procedures_ok
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $2
+  AND p.prokind = 'p';
+`
+	getGrantRoutineQuery = `
+SELECT COALESCE(
+  has_function_privilege($1, to_regprocedure(format('%I.%s', $3::text, $2::text)), $4),
+  false
+);
+`
+	getGrantAllRoutinesInSchemaQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_function_privilege($1, p.oid, $3)
+    ),
+    true
+  ) AS all_routines_ok
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $2
+  AND p.prokind IN ('f', 'p');
+`
+	getGrantAllRoutinesInSchemaAllQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_function_privilege($1, p.oid, 'EXECUTE')
+    ),
+    true
+  ) AS all_routines_ok
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $2
+  AND p.prokind IN ('f', 'p');
+`
 	getGrantAllTablesInSchemaAllQuery = `
 SELECT
   COALESCE(
@@ -133,6 +229,12 @@ SELECT EXISTS (
 	setGrantAllTablesTemplate = `GRANT {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
 	setGrantSequenceTemplate  = `GRANT {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
 	setGrantAllSequencesTemplate = `GRANT {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantFunctionTemplate = `GRANT {{.Permission}} ON FUNCTION "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
+	setGrantAllFunctionsTemplate = `GRANT {{.Permission}} ON ALL FUNCTIONS IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantProcedureTemplate = `GRANT {{.Permission}} ON PROCEDURE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
+	setGrantAllProceduresTemplate = `GRANT {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantRoutineTemplate = `GRANT {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
+	setGrantAllRoutinesTemplate = `GRANT {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
 	setRevokeInstanceTemplate = `REVOKE "{{.Permission}}" FROM "{{.Role}}";`
 	setRevokeDatabaseTemplate = `REVOKE {{.Permission}} ON DATABASE "{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeSchemaTemplate   = `REVOKE {{.Permission}} ON SCHEMA "{{.Resource}}" FROM "{{.Role}}";`
@@ -140,6 +242,12 @@ SELECT EXISTS (
 	setRevokeAllTablesTemplate = `REVOKE {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
 	setRevokeSequenceTemplate = `REVOKE {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeAllSequencesTemplate = `REVOKE {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeFunctionTemplate = `REVOKE {{.Permission}} ON FUNCTION "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
+	setRevokeAllFunctionsTemplate = `REVOKE {{.Permission}} ON ALL FUNCTIONS IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeProcedureTemplate = `REVOKE {{.Permission}} ON PROCEDURE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
+	setRevokeAllProceduresTemplate = `REVOKE {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeRoutineTemplate = `REVOKE {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
+	setRevokeAllRoutinesTemplate = `REVOKE {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
 	setRoleCreateTemplate     = `CREATE ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleUpdateTemplate     = `ALTER ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleDeleteTemplate     = `DROP ROLE "{{.Name}}";`

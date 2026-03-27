@@ -27,17 +27,32 @@ var scopes = struct {
 	schema   scope
 	table    scope
 	sequence scope
+	function scope
+	procedure scope
+	routine scope
 	database scope
 }{
 	instance: "INSTANCE",
 	schema:   "SCHEMA",
 	table:    "TABLE",
 	sequence: "SEQUENCE",
+	function: "FUNCTION",
+	procedure: "PROCEDURE",
+	routine: "ROUTINE",
 	database: "DATABASE",
 }
 
 // scopesList contains the valid scopes for a grant operation that can be referenced in code.
-var scopesList = []scope{scopes.instance, scopes.schema, scopes.table, scopes.sequence, scopes.database}
+var scopesList = []scope{
+	scopes.instance,
+	scopes.schema,
+	scopes.table,
+	scopes.sequence,
+	scopes.function,
+	scopes.procedure,
+	scopes.routine,
+	scopes.database,
+}
 
 var _ blackstart.Module = &grantModule{}
 var requiredGrantParameters = []string{inputRole, inputPermission, inputConnection}
@@ -47,6 +62,7 @@ var grantTablePermissions = []string{
 	"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN", "ALL",
 }
 var grantSequencePermissions = []string{"USAGE", "SELECT", "UPDATE", "ALL"}
+var grantRoutinePermissions = []string{"EXECUTE", "ALL"}
 var requiredRoleParameters = []string{inputName}
 
 func NewPostgresGrant() blackstart.Module {
@@ -190,6 +206,23 @@ func normalizeScopeTargets(
 			return nil, nil, fmt.Errorf("input %q must be provided when scope is SEQUENCE", inputResource)
 		}
 		return schemas, resources, nil
+	case scopes.function, scopes.procedure, scopes.routine:
+		// Routine grants require schema-qualified resources, or schema-wide "all" mode.
+		if len(schemas) == 1 && schemas[0] == "" {
+			return nil, nil, fmt.Errorf("input %q must be provided when scope is %s", inputSchema, grantScope)
+		}
+		if all {
+			if len(resources) > 1 || (len(resources) == 1 && resources[0] != "") {
+				return nil, nil, fmt.Errorf(
+					"input %q must be empty when %q is true", inputResource, inputAll,
+				)
+			}
+			return schemas, []string{""}, nil
+		}
+		if len(resources) == 1 && resources[0] == "" {
+			return nil, nil, fmt.Errorf("input %q must be provided when scope is %s", inputResource, grantScope)
+		}
+		return schemas, resources, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported scope: %s", grantScope)
 	}
@@ -234,6 +267,10 @@ func validateGrantPermission(grantScope scope, permission string) error {
 		}
 	case scopes.sequence:
 		if !slices.Contains(grantSequencePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.function, scopes.procedure, scopes.routine:
+		if !slices.Contains(grantRoutinePermissions, perm) {
 			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
 		}
 	default:
@@ -340,8 +377,16 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 	if err != nil {
 		return nil, err
 	}
-	if all && normalizedScope != scopes.table && normalizedScope != scopes.sequence {
-		return nil, fmt.Errorf("input %q is only supported when scope is TABLE or SEQUENCE", inputAll)
+	if all &&
+		normalizedScope != scopes.table &&
+		normalizedScope != scopes.sequence &&
+		normalizedScope != scopes.function &&
+		normalizedScope != scopes.procedure &&
+		normalizedScope != scopes.routine {
+		return nil, fmt.Errorf(
+			"input %q is only supported when scope is TABLE, SEQUENCE, FUNCTION, PROCEDURE, or ROUTINE",
+			inputAll,
+		)
 	}
 	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources, all)
 	if err != nil {
@@ -401,7 +446,8 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 			"A valid Postgres `connection` input must be provided.",
 			"The database user of the `connection` must be a member of a role that has `ADMIN OPTION` on the target roles.",
 			"Target roles/users and target resources must exist for the selected `scope`.",
-			"For `TABLE` scope, both schema and table must exist and be addressable by the user.",
+			"For `TABLE` and `SEQUENCE` scopes, both schema and resource must exist and be addressable by the user.",
+			"For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, `schema` must be provided and `resource` must reference a routine signature (for example `do_work(integer)`) unless `all` is true.",
 		},
 		Inputs: map[string]blackstart.InputValue{
 			inputConnection: {
@@ -557,6 +603,42 @@ inputs:
   scope: SEQUENCE
   schema: public
   all: true`,
+			"Grant EXECUTE on a function": `id: grant-execute-function
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: EXECUTE
+  scope: FUNCTION
+  schema: public
+  resource: do_work(integer)`,
+			"Grant EXECUTE on all procedures in schema": `id: grant-execute-all-procedures
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: EXECUTE
+  scope: PROCEDURE
+  schema: public
+  all: true`,
+			"Grant EXECUTE on all routines in schema": `id: grant-execute-all-routines
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: EXECUTE
+  scope: ROUTINE
+  schema: public
+  all: true`,
 		},
 	}
 }
@@ -593,8 +675,16 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 			return fmt.Errorf("parameter %s is invalid: %w", inputAll, err)
 		}
 	}
-	if all && grantScope != scopes.table && grantScope != scopes.sequence {
-		return fmt.Errorf("parameter %s is invalid: only supported when scope is TABLE or SEQUENCE", inputAll)
+	if all &&
+		grantScope != scopes.table &&
+		grantScope != scopes.sequence &&
+		grantScope != scopes.function &&
+		grantScope != scopes.procedure &&
+		grantScope != scopes.routine {
+		return fmt.Errorf(
+			"parameter %s is invalid: only supported when scope is TABLE, SEQUENCE, FUNCTION, PROCEDURE, or ROUTINE",
+			inputAll,
+		)
 	}
 
 	rolesInput := op.Inputs[inputRole]
@@ -811,6 +901,39 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 			target.Schema,
 		}
 		return getGrantSequenceQuery, queryParams, nil
+	case scopes.function, scopes.procedure, scopes.routine:
+		normalizedPermission := normalizeGrantPermissionToken(grantScope, target.Permission)
+		if target.All {
+			if normalizedPermission == "ALL" {
+				queryParams := []interface{}{target.Role, target.Schema}
+				switch grantScope {
+				case scopes.function:
+					return getGrantAllFunctionsInSchemaAllQuery, queryParams, nil
+				case scopes.procedure:
+					return getGrantAllProceduresInSchemaAllQuery, queryParams, nil
+				default:
+					return getGrantAllRoutinesInSchemaAllQuery, queryParams, nil
+				}
+			}
+			queryParams := []interface{}{target.Role, target.Schema, normalizedPermission}
+			switch grantScope {
+			case scopes.function:
+				return getGrantAllFunctionsInSchemaQuery, queryParams, nil
+			case scopes.procedure:
+				return getGrantAllProceduresInSchemaQuery, queryParams, nil
+			default:
+				return getGrantAllRoutinesInSchemaQuery, queryParams, nil
+			}
+		}
+		queryParams := []interface{}{target.Role, target.Resource, target.Schema, normalizedPermission}
+		switch grantScope {
+		case scopes.function:
+			return getGrantFunctionQuery, queryParams, nil
+		case scopes.procedure:
+			return getGrantProcedureQuery, queryParams, nil
+		default:
+			return getGrantRoutineQuery, queryParams, nil
+		}
 	default:
 		return "", nil, fmt.Errorf("no query for scope: %s", target.Scope)
 	}
@@ -875,6 +998,30 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 		} else {
 			tmpl, err = template.New("setGrantSequence").Parse(setGrantSequenceTemplate)
 		}
+	case scopes.function, scopes.procedure, scopes.routine:
+		if !slices.Contains(grantRoutinePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid %s permission: %s", strings.ToLower(target.Scope), target.Permission)
+		}
+		switch grantScope {
+		case scopes.function:
+			if target.All {
+				tmpl, err = template.New("setGrantAllFunctions").Parse(setGrantAllFunctionsTemplate)
+			} else {
+				tmpl, err = template.New("setGrantFunction").Parse(setGrantFunctionTemplate)
+			}
+		case scopes.procedure:
+			if target.All {
+				tmpl, err = template.New("setGrantAllProcedures").Parse(setGrantAllProceduresTemplate)
+			} else {
+				tmpl, err = template.New("setGrantProcedure").Parse(setGrantProcedureTemplate)
+			}
+		default:
+			if target.All {
+				tmpl, err = template.New("setGrantAllRoutines").Parse(setGrantAllRoutinesTemplate)
+			} else {
+				tmpl, err = template.New("setGrantRoutine").Parse(setGrantRoutineTemplate)
+			}
+		}
 	default:
 		return "", nil, fmt.Errorf("no query for scope: %s", target.Scope)
 	}
@@ -936,6 +1083,30 @@ func getGrantRevokeQuery(target *grant) (string, []interface{}, error) {
 			tmpl, err = template.New("revokeGrantAllSequences").Parse(setRevokeAllSequencesTemplate)
 		} else {
 			tmpl, err = template.New("revokeGrantSequence").Parse(setRevokeSequenceTemplate)
+		}
+	case scopes.function, scopes.procedure, scopes.routine:
+		if !slices.Contains(grantRoutinePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid %s permission: %s", strings.ToLower(target.Scope), target.Permission)
+		}
+		switch grantScope {
+		case scopes.function:
+			if target.All {
+				tmpl, err = template.New("revokeGrantAllFunctions").Parse(setRevokeAllFunctionsTemplate)
+			} else {
+				tmpl, err = template.New("revokeGrantFunction").Parse(setRevokeFunctionTemplate)
+			}
+		case scopes.procedure:
+			if target.All {
+				tmpl, err = template.New("revokeGrantAllProcedures").Parse(setRevokeAllProceduresTemplate)
+			} else {
+				tmpl, err = template.New("revokeGrantProcedure").Parse(setRevokeProcedureTemplate)
+			}
+		default:
+			if target.All {
+				tmpl, err = template.New("revokeGrantAllRoutines").Parse(setRevokeAllRoutinesTemplate)
+			} else {
+				tmpl, err = template.New("revokeGrantRoutine").Parse(setRevokeRoutineTemplate)
+			}
 		}
 	default:
 		return "", nil, fmt.Errorf("no revoke query for scope: %s", target.Scope)

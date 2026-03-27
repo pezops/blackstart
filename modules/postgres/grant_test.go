@@ -32,7 +32,7 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 					inputAll:        blackstart.NewInputFromValue(true),
 				},
 			},
-			wantErr: "only supported when scope is TABLE or SEQUENCE",
+			wantErr: "only supported when scope is TABLE, SEQUENCE, FUNCTION, PROCEDURE, or ROUTINE",
 		},
 		{
 			name: "rejects_all_tables_with_resource",
@@ -78,6 +78,37 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 					inputScope:      blackstart.NewInputFromValue("sequence"),
 					inputSchema:     blackstart.NewInputFromValue("public"),
 					inputResource:   blackstart.NewInputFromValue("orders_id_seq"),
+				},
+			},
+			wantErr: "invalid permission",
+		},
+		{
+			name: "accepts_function_execute_permission",
+			op: blackstart.Operation{
+				Id:     "grant-validate-function-permission",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("EXECUTE"),
+					inputScope:      blackstart.NewInputFromValue("function"),
+					inputSchema:     blackstart.NewInputFromValue("public"),
+					inputResource:   blackstart.NewInputFromValue("do_work(integer)"),
+				},
+			},
+		},
+		{
+			name: "rejects_invalid_function_permission",
+			op: blackstart.Operation{
+				Id:     "grant-validate-function-invalid-permission",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("USAGE"),
+					inputScope:      blackstart.NewInputFromValue("function"),
+					inputSchema:     blackstart.NewInputFromValue("public"),
+					inputResource:   blackstart.NewInputFromValue("do_work(integer)"),
 				},
 			},
 			wantErr: "invalid permission",
@@ -590,6 +621,45 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 			},
 		},
 		{
+			name: "function_scope_all_multi_schema",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("EXECUTE"),
+				inputScope:      blackstart.NewInputFromValue("function"),
+				inputSchema:     blackstart.NewInputFromValue([]string{"a", "b"}),
+				inputAll:        blackstart.NewInputFromValue(true),
+			},
+			wantLen: 2,
+			validate: func(t *testing.T, grants []*grant) {
+				for _, g := range grants {
+					require.Equal(t, "FUNCTION", g.Scope)
+					require.True(t, g.All)
+					require.NotEmpty(t, g.Schema)
+					require.Empty(t, g.Resource)
+				}
+			},
+		},
+		{
+			name: "procedure_scope_requires_schema",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("EXECUTE"),
+				inputScope:      blackstart.NewInputFromValue("procedure"),
+				inputResource:   blackstart.NewInputFromValue("do_work(integer)"),
+			},
+			wantErr: `input "schema" must be provided when scope is PROCEDURE`,
+		},
+		{
+			name: "routine_scope_requires_resource_when_all_false",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("EXECUTE"),
+				inputScope:      blackstart.NewInputFromValue("routine"),
+				inputSchema:     blackstart.NewInputFromValue("public"),
+			},
+			wantErr: `input "resource" must be provided when scope is ROUTINE`,
+		},
+		{
 			name: "table_scope_multi_schema_resource_cartesian",
 			inputs: map[string]blackstart.Input{
 				inputRole:       blackstart.NewInputFromValue("role_a"),
@@ -757,6 +827,69 @@ func TestGrantQueries_AllScopes_Render(t *testing.T) {
 			},
 			setContains:    []string{"GRANT", "ON ALL TABLES IN SCHEMA", `"blackstart_render_all_tables_schema"`},
 			revokeContains: []string{"REVOKE", "ON ALL TABLES IN SCHEMA", `"blackstart_render_all_tables_schema"`},
+		},
+		{
+			name: "function",
+			target: &grant{
+				Role:       "blackstart_render_function_role",
+				Permission: "EXECUTE",
+				Schema:     "blackstart_render_function_schema",
+				Resource:   "blackstart_add(integer)",
+				Scope:      "FUNCTION",
+			},
+			setupSQL: []string{
+				`DROP ROLE IF EXISTS "blackstart_render_function_role";`,
+				`CREATE ROLE "blackstart_render_function_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_render_function_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_render_function_schema";`,
+				`CREATE OR REPLACE FUNCTION "blackstart_render_function_schema"."blackstart_add"(x integer) RETURNS integer LANGUAGE sql AS $$ SELECT x + 1; $$;`,
+				`REVOKE EXECUTE ON FUNCTION "blackstart_render_function_schema"."blackstart_add"(integer) FROM PUBLIC;`,
+			},
+			setContains:    []string{"GRANT", "ON FUNCTION", `"blackstart_render_function_schema".blackstart_add(integer)`},
+			revokeContains: []string{"REVOKE", "ON FUNCTION", `"blackstart_render_function_schema".blackstart_add(integer)`},
+		},
+		{
+			name: "procedure_all_in_schema",
+			target: &grant{
+				Role:       "blackstart_render_procedure_all_role",
+				Permission: "EXECUTE",
+				Schema:     "blackstart_render_procedure_all_schema",
+				Scope:      "PROCEDURE",
+				All:        true,
+			},
+			setupSQL: []string{
+				`DROP ROLE IF EXISTS "blackstart_render_procedure_all_role";`,
+				`CREATE ROLE "blackstart_render_procedure_all_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_render_procedure_all_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_render_procedure_all_schema";`,
+				`CREATE OR REPLACE PROCEDURE "blackstart_render_procedure_all_schema"."proc_a"(x integer) LANGUAGE sql AS $$ SELECT x; $$;`,
+				`CREATE OR REPLACE PROCEDURE "blackstart_render_procedure_all_schema"."proc_b"(x integer) LANGUAGE sql AS $$ SELECT x; $$;`,
+				`REVOKE EXECUTE ON ALL PROCEDURES IN SCHEMA "blackstart_render_procedure_all_schema" FROM PUBLIC;`,
+			},
+			setContains:    []string{"GRANT", "ON ALL PROCEDURES IN SCHEMA", `"blackstart_render_procedure_all_schema"`},
+			revokeContains: []string{"REVOKE", "ON ALL PROCEDURES IN SCHEMA", `"blackstart_render_procedure_all_schema"`},
+		},
+		{
+			name: "routine_all_in_schema",
+			target: &grant{
+				Role:       "blackstart_render_routine_all_role",
+				Permission: "EXECUTE",
+				Schema:     "blackstart_render_routine_all_schema",
+				Scope:      "ROUTINE",
+				All:        true,
+			},
+			setupSQL: []string{
+				`DROP ROLE IF EXISTS "blackstart_render_routine_all_role";`,
+				`CREATE ROLE "blackstart_render_routine_all_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_render_routine_all_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_render_routine_all_schema";`,
+				`CREATE OR REPLACE FUNCTION "blackstart_render_routine_all_schema"."fn_a"(x integer) RETURNS integer LANGUAGE sql AS $$ SELECT x + 1; $$;`,
+				`CREATE OR REPLACE PROCEDURE "blackstart_render_routine_all_schema"."proc_a"(x integer) LANGUAGE sql AS $$ SELECT x; $$;`,
+				`REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA "blackstart_render_routine_all_schema" FROM PUBLIC;`,
+				`REVOKE EXECUTE ON ALL PROCEDURES IN SCHEMA "blackstart_render_routine_all_schema" FROM PUBLIC;`,
+			},
+			setContains:    []string{"GRANT", "ON ALL ROUTINES IN SCHEMA", `"blackstart_render_routine_all_schema"`},
+			revokeContains: []string{"REVOKE", "ON ALL ROUTINES IN SCHEMA", `"blackstart_render_routine_all_schema"`},
 		},
 		{
 			name: "table",
