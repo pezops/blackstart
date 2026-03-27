@@ -316,3 +316,54 @@ func TestDefaultPrivilegesModule_ValidateRejectsGrantOptionInRevokeMode(t *testi
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not valid when doesNotExist is true")
 }
+
+func TestDefaultPrivilegesModule_ValidateScopeRules(t *testing.T) {
+	m := newDefaultPrivilegesModule()
+
+	t.Run("rejects_schema_for_schemas_scope", func(t *testing.T) {
+		op := blackstart.Operation{
+			Id:     "default-priv-invalid-schema-for-schemas",
+			Module: defaultPrivilegesModuleID,
+			Inputs: map[string]blackstart.Input{
+				inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+				inputRole:       blackstart.NewInputFromValue("app_user"),
+				inputPermission: blackstart.NewInputFromValue("USAGE"),
+				inputScope:      blackstart.NewInputFromValue("SCHEMAS"),
+				inputSchema:     blackstart.NewInputFromValue("public"),
+			},
+		}
+		err := m.Validate(op)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not supported when scope is SCHEMAS")
+	})
+
+	t.Run("accepts_large_objects_scope_alias", func(t *testing.T) {
+		op := blackstart.Operation{
+			Id:     "default-priv-large-objects-alias",
+			Module: defaultPrivilegesModuleID,
+			Inputs: map[string]blackstart.Input{
+				inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+				inputRole:       blackstart.NewInputFromValue("app_user"),
+				inputPermission: blackstart.NewInputFromValue("SELECT"),
+				inputScope:      blackstart.NewInputFromValue("LARGE OBJECTS"),
+			},
+		}
+		err := m.Validate(op)
+		require.NoError(t, err)
+	})
+}
+
+func TestBuildAlterDefaultPrivilegesSQL_NewScopes(t *testing.T) {
+	target := defaultPrivilegeTarget{
+		Scope:      defaultPrivilegeScopeFunctions,
+		OwnerRole:  "admin",
+		Grantee:    "PUBLIC",
+		Permission: "EXECUTE",
+		RevokeMode: "RESTRICT",
+	}
+	grantQuery := buildAlterDefaultPrivilegesSQL(target, false)
+	require.Contains(t, grantQuery, "GRANT EXECUTE ON FUNCTIONS TO PUBLIC;")
+
+	revokeQuery := buildAlterDefaultPrivilegesSQL(target, true)
+	require.Contains(t, revokeQuery, "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC RESTRICT;")
+}
