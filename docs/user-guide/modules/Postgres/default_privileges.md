@@ -23,16 +23,16 @@ When operation `doesNotExist=false`, this module applies default privilege grant
 
 ## Inputs
 
-| Id                | Description                                                                                                                                 | Type             | Required |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------- |
-| connection        | Database connection.                                                                                                                        | \*sql.DB         | true     |
-| for_role          | Owner role(s) used in `FOR ROLE`. If omitted, current database role is used.                                                                | string, []string | false    |
-| permission        | Permission(s) to grant or revoke in the default-privilege definition.                                                                       | string, []string | true     |
-| revoke_mode       | Revoke behavior when operation `doesNotExist=true`. Supported values: `RESTRICT`, `CASCADE`.<br>Default: **RESTRICT**                       | string           | false    |
-| role              | Role(s) receiving the default privileges.                                                                                                   | string, []string | true     |
-| schema            | Optional schema(s) used in `IN SCHEMA`.                                                                                                     | string, []string | false    |
-| scope             | Object class for default privileges. Supported values: `TABLES`, `SEQUENCES`, `FUNCTIONS`, `ROUTINES`, `TYPES`, `SCHEMAS`, `LARGE_OBJECTS`. | string           | true     |
-| with_grant_option | Apply `WITH GRANT OPTION`. Not valid when operation `doesNotExist=true` (revoke mode).<br>Default: **false**                                | bool             | false    |
+| Id                | Description                                                                                                                          | Type             | Required |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------- | -------- |
+| connection        | Database connection.                                                                                                                 | \*sql.DB         | true     |
+| for_role          | Owner role(s) used in `FOR ROLE`. If omitted, current database role is used.                                                         | string, []string | false    |
+| permission        | Permission(s) to grant or revoke in the default-privilege definition.                                                                | string, []string | true     |
+| revoke_mode       | Revoke behavior when operation `doesNotExist=true`. Supported values: `RESTRICT`, `CASCADE`.<br>Default: **RESTRICT**                | string           | false    |
+| role              | Role(s) receiving the default privileges.                                                                                            | string, []string | true     |
+| schema            | Optional schema(s) used in `IN SCHEMA`.                                                                                              | string, []string | false    |
+| scope             | Object class for default privileges. Supported values: `TABLE`, `SEQUENCE`, `FUNCTION`, `ROUTINE`, `TYPE`, `SCHEMA`, `LARGE_OBJECT`. | string           | true     |
+| with_grant_option | Apply `WITH GRANT OPTION`. Not valid when operation `doesNotExist=true` (revoke mode).<br>Default: **false**                         | bool             | false    |
 
 ## Outputs
 
@@ -56,7 +56,7 @@ inputs:
   permission:
     - SELECT
     - UPDATE
-  scope: TABLES
+  scope: TABLE
   for_role: app_owner
   schema: public
   with_grant_option: false
@@ -75,7 +75,7 @@ inputs:
       output: connection
   role: PUBLIC
   permission: EXECUTE
-  scope: FUNCTIONS
+  scope: FUNCTION
   for_role: admin
   revoke_mode: RESTRICT
 ```
@@ -93,7 +93,7 @@ inputs:
       output: connection
   role: analytics_team
   permission: UPDATE
-  scope: TABLES
+  scope: TABLE
   for_role: app_owner
   schema: public
   revoke_mode: RESTRICT
