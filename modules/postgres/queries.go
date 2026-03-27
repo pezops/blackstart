@@ -17,29 +17,29 @@ SELECT EXISTS (
 `
 	getGrantDatabaseAllQuery = `
 SELECT (
-    has_database_privilege($1, $2, 'CREATE')
-    AND has_database_privilege($1, $2, 'CONNECT')
-    AND has_database_privilege($1, $2, 'TEMPORARY')
+    has_database_privilege($1, $2, $3)
+    AND has_database_privilege($1, $2, $4)
+    AND has_database_privilege($1, $2, $5)
 );
 `
 	getGrantSchemaQuery    = `SELECT has_schema_privilege($2, $3, $1);`
 	getGrantSchemaAllQuery = `
 SELECT (
-    has_schema_privilege($1, $2, 'CREATE')
-    AND has_schema_privilege($1, $2, 'USAGE')
+    has_schema_privilege($1, $2, $3)
+    AND has_schema_privilege($1, $2, $4)
 );
 `
 	getGrantTableQuery    = `SELECT has_table_privilege($2, $4 || '.' || $3, $1);`
 	getGrantTableAllQuery = `
 SELECT (
-    has_table_privilege($1, $2 || '.' || $3, 'SELECT')
-    AND has_table_privilege($1, $2 || '.' || $3, 'INSERT')
-    AND has_table_privilege($1, $2 || '.' || $3, 'UPDATE')
-    AND has_table_privilege($1, $2 || '.' || $3, 'DELETE')
-    AND has_table_privilege($1, $2 || '.' || $3, 'TRUNCATE')
-    AND has_table_privilege($1, $2 || '.' || $3, 'REFERENCES')
-    AND has_table_privilege($1, $2 || '.' || $3, 'TRIGGER')
-    AND has_table_privilege($1, $2 || '.' || $3, 'MAINTAIN')
+    has_table_privilege($1, $2 || '.' || $3, $4)
+    AND has_table_privilege($1, $2 || '.' || $3, $5)
+    AND has_table_privilege($1, $2 || '.' || $3, $6)
+    AND has_table_privilege($1, $2 || '.' || $3, $7)
+    AND has_table_privilege($1, $2 || '.' || $3, $8)
+    AND has_table_privilege($1, $2 || '.' || $3, $9)
+    AND has_table_privilege($1, $2 || '.' || $3, $10)
+    AND has_table_privilege($1, $2 || '.' || $3, $11)
 );
 `
 	getGrantAllTablesInSchemaQuery = `
@@ -60,9 +60,9 @@ WHERE schemaname = $2;
 	getGrantSequenceQuery    = `SELECT has_sequence_privilege($2, $4 || '.' || $3, $1);`
 	getGrantSequenceAllQuery = `
 SELECT (
-    has_sequence_privilege($1, $2 || '.' || $3, 'USAGE')
-    AND has_sequence_privilege($1, $2 || '.' || $3, 'SELECT')
-    AND has_sequence_privilege($1, $2 || '.' || $3, 'UPDATE')
+    has_sequence_privilege($1, $2 || '.' || $3, $4)
+    AND has_sequence_privilege($1, $2 || '.' || $3, $5)
+    AND has_sequence_privilege($1, $2 || '.' || $3, $6)
 );
 `
 	getGrantAllSequencesInSchemaQuery = `
@@ -84,9 +84,9 @@ WHERE sequence_schema = $2;
 SELECT
   COALESCE(
     bool_and(
-      has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), 'USAGE')
-      AND has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), 'SELECT')
-      AND has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), 'UPDATE')
+      has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), $3)
+      AND has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), $4)
+      AND has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), $5)
     ),
     true
   ) AS all_sequences_ok
@@ -116,7 +116,7 @@ WHERE n.nspname = $2
 SELECT
   COALESCE(
     bool_and(
-      has_function_privilege($1, p.oid, 'EXECUTE')
+      has_function_privilege($1, p.oid, $3)
     ),
     true
   ) AS all_functions_ok
@@ -148,7 +148,7 @@ WHERE n.nspname = $2
 SELECT
   COALESCE(
     bool_and(
-      has_function_privilege($1, p.oid, 'EXECUTE')
+      has_function_privilege($1, p.oid, $3)
     ),
     true
   ) AS all_procedures_ok
@@ -180,7 +180,7 @@ WHERE n.nspname = $2
 SELECT
   COALESCE(
     bool_and(
-      has_function_privilege($1, p.oid, 'EXECUTE')
+      has_function_privilege($1, p.oid, $3)
     ),
     true
   ) AS all_routines_ok
@@ -189,18 +189,44 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = $2
   AND p.prokind IN ('f', 'p');
 `
+	getGrantDomainQuery = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantDomainAllQuery = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantFdwQuery = `SELECT has_foreign_data_wrapper_privilege($1, $2, $3);`
+	getGrantFdwAllQuery = `SELECT has_foreign_data_wrapper_privilege($1, $2, $3);`
+	getGrantForeignServerQuery = `SELECT has_server_privilege($1, $2, $3);`
+	getGrantForeignServerAllQuery = `SELECT has_server_privilege($1, $2, $3);`
+	getGrantLanguageQuery = `SELECT has_language_privilege($1, $2, $3);`
+	getGrantLanguageAllQuery = `SELECT has_language_privilege($1, $2, $3);`
+	getGrantLargeObjectQuery = `SELECT has_largeobject_privilege($1, $2::oid, $3);`
+	getGrantLargeObjectAllQuery = `
+SELECT (
+  has_largeobject_privilege($1, $2::oid, $3)
+  AND has_largeobject_privilege($1, $2::oid, $4)
+);
+`
+	getGrantParameterQuery = `SELECT has_parameter_privilege($1, $2, $3);`
+	getGrantParameterAllQuery = `
+SELECT (
+  has_parameter_privilege($1, $2, $3)
+  AND has_parameter_privilege($1, $2, $4)
+);
+`
+	getGrantTablespaceQuery = `SELECT has_tablespace_privilege($1, $2, $3);`
+	getGrantTablespaceAllQuery = `SELECT has_tablespace_privilege($1, $2, $3);`
+	getGrantTypeQuery = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantTypeAllQuery = `SELECT has_type_privilege($1, $2, $3);`
 	getGrantAllTablesInSchemaAllQuery = `
 SELECT
   COALESCE(
     bool_and(
-      has_table_privilege($1, format('%I.%I', schemaname, tablename), 'SELECT')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'INSERT')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'UPDATE')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'DELETE')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'TRUNCATE')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'REFERENCES')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'TRIGGER')
-      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), 'MAINTAIN')
+      has_table_privilege($1, format('%I.%I', schemaname, tablename), $3)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $4)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $5)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $6)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $7)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $8)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $9)
+      AND has_table_privilege($1, format('%I.%I', schemaname, tablename), $10)
     ),
     true
   ) AS all_tables_ok
@@ -235,6 +261,14 @@ SELECT EXISTS (
 	setGrantAllProceduresTemplate = `GRANT {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
 	setGrantRoutineTemplate = `GRANT {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
 	setGrantAllRoutinesTemplate = `GRANT {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantDomainTemplate = `GRANT {{.Permission}} ON DOMAIN "{{.Resource}}" TO "{{.Role}}";`
+	setGrantFdwTemplate = `GRANT {{.Permission}} ON FOREIGN DATA WRAPPER "{{.Resource}}" TO "{{.Role}}";`
+	setGrantForeignServerTemplate = `GRANT {{.Permission}} ON FOREIGN SERVER "{{.Resource}}" TO "{{.Role}}";`
+	setGrantLanguageTemplate = `GRANT {{.Permission}} ON LANGUAGE "{{.Resource}}" TO "{{.Role}}";`
+	setGrantLargeObjectTemplate = `GRANT {{.Permission}} ON LARGE OBJECT {{.Resource}} TO "{{.Role}}";`
+	setGrantParameterTemplate = `GRANT {{.Permission}} ON PARAMETER "{{.Resource}}" TO "{{.Role}}";`
+	setGrantTablespaceTemplate = `GRANT {{.Permission}} ON TABLESPACE "{{.Resource}}" TO "{{.Role}}";`
+	setGrantTypeTemplate = `GRANT {{.Permission}} ON TYPE "{{.Resource}}" TO "{{.Role}}";`
 	setRevokeInstanceTemplate = `REVOKE "{{.Permission}}" FROM "{{.Role}}";`
 	setRevokeDatabaseTemplate = `REVOKE {{.Permission}} ON DATABASE "{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeSchemaTemplate   = `REVOKE {{.Permission}} ON SCHEMA "{{.Resource}}" FROM "{{.Role}}";`
@@ -248,6 +282,14 @@ SELECT EXISTS (
 	setRevokeAllProceduresTemplate = `REVOKE {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
 	setRevokeRoutineTemplate = `REVOKE {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
 	setRevokeAllRoutinesTemplate = `REVOKE {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeDomainTemplate = `REVOKE {{.Permission}} ON DOMAIN "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeFdwTemplate = `REVOKE {{.Permission}} ON FOREIGN DATA WRAPPER "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeForeignServerTemplate = `REVOKE {{.Permission}} ON FOREIGN SERVER "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeLanguageTemplate = `REVOKE {{.Permission}} ON LANGUAGE "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeLargeObjectTemplate = `REVOKE {{.Permission}} ON LARGE OBJECT {{.Resource}} FROM "{{.Role}}";`
+	setRevokeParameterTemplate = `REVOKE {{.Permission}} ON PARAMETER "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeTablespaceTemplate = `REVOKE {{.Permission}} ON TABLESPACE "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeTypeTemplate = `REVOKE {{.Permission}} ON TYPE "{{.Resource}}" FROM "{{.Role}}";`
 	setRoleCreateTemplate     = `CREATE ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleUpdateTemplate     = `ALTER ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleDeleteTemplate     = `DROP ROLE "{{.Name}}";`

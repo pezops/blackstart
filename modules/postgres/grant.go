@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/pezops/blackstart"
+	"github.com/pezops/blackstart/util"
 )
 
 func init() {
@@ -23,23 +25,39 @@ type scope string
 
 // scopes contains the valid scopes for a grant operation that can be referenced in code.
 var scopes = struct {
-	instance scope
-	schema   scope
-	table    scope
-	sequence scope
-	function scope
-	procedure scope
-	routine scope
-	database scope
+	instance      scope
+	schema        scope
+	table         scope
+	sequence      scope
+	function      scope
+	procedure     scope
+	routine       scope
+	database      scope
+	domain        scope
+	fdw           scope
+	foreignServer scope
+	language      scope
+	largeObject   scope
+	parameter     scope
+	tablespace    scope
+	typ           scope
 }{
-	instance: "INSTANCE",
-	schema:   "SCHEMA",
-	table:    "TABLE",
-	sequence: "SEQUENCE",
-	function: "FUNCTION",
-	procedure: "PROCEDURE",
-	routine: "ROUTINE",
-	database: "DATABASE",
+	instance:      "INSTANCE",
+	schema:        "SCHEMA",
+	table:         "TABLE",
+	sequence:      "SEQUENCE",
+	function:      "FUNCTION",
+	procedure:     "PROCEDURE",
+	routine:       "ROUTINE",
+	database:      "DATABASE",
+	domain:        "DOMAIN",
+	fdw:           "FDW",
+	foreignServer: "FOREIGN_SERVER",
+	language:      "LANGUAGE",
+	largeObject:   "LARGE_OBJECT",
+	parameter:     "PARAMETER",
+	tablespace:    "TABLESPACE",
+	typ:           "TYPE",
 }
 
 // scopesList contains the valid scopes for a grant operation that can be referenced in code.
@@ -52,6 +70,14 @@ var scopesList = []scope{
 	scopes.procedure,
 	scopes.routine,
 	scopes.database,
+	scopes.domain,
+	scopes.fdw,
+	scopes.foreignServer,
+	scopes.language,
+	scopes.largeObject,
+	scopes.parameter,
+	scopes.tablespace,
+	scopes.typ,
 }
 
 var _ blackstart.Module = &grantModule{}
@@ -63,6 +89,14 @@ var grantTablePermissions = []string{
 }
 var grantSequencePermissions = []string{"USAGE", "SELECT", "UPDATE", "ALL"}
 var grantRoutinePermissions = []string{"EXECUTE", "ALL"}
+var grantDomainPermissions = []string{"USAGE", "ALL"}
+var grantFdwPermissions = []string{"USAGE", "ALL"}
+var grantForeignServerPermissions = []string{"USAGE", "ALL"}
+var grantLanguagePermissions = []string{"USAGE", "ALL"}
+var grantLargeObjectPermissions = []string{"SELECT", "UPDATE", "ALL"}
+var grantParameterPermissions = []string{"SET", "ALTER SYSTEM", "ALL"}
+var grantTablespacePermissions = []string{"CREATE", "ALL"}
+var grantTypePermissions = []string{"USAGE", "ALL"}
 var requiredRoleParameters = []string{inputName}
 
 func NewPostgresGrant() blackstart.Module {
@@ -89,6 +123,8 @@ type grant struct {
 	Scope string
 	// All indicates the grant should target all resources in Schema for scopes that support it.
 	All bool
+	// WithGrantOption requests WITH GRANT OPTION where supported by the selected scope.
+	WithGrantOption bool
 }
 
 // normalizeRequiredStringList trims required list values and rejects empty entries.
@@ -223,9 +259,23 @@ func normalizeScopeTargets(
 			return nil, nil, fmt.Errorf("input %q must be provided when scope is %s", inputResource, grantScope)
 		}
 		return schemas, resources, nil
+	case scopes.domain, scopes.fdw, scopes.foreignServer, scopes.language, scopes.largeObject, scopes.parameter, scopes.tablespace, scopes.typ:
+		// Object scopes outside schema-qualified resources always target inputResource directly.
+		if len(resources) == 1 && resources[0] == "" {
+			return nil, nil, fmt.Errorf("input %q must be provided when scope is %s", inputResource, grantScope)
+		}
+		if len(schemas) > 1 || (len(schemas) == 1 && schemas[0] != "") {
+			return nil, nil, fmt.Errorf("input %q is not supported when scope is %s", inputSchema, grantScope)
+		}
+		return []string{""}, resources, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported scope: %s", grantScope)
 	}
+}
+
+// supportsWithGrantOption reports whether GRANT ... WITH GRANT OPTION is supported for the scope.
+func supportsWithGrantOption(grantScope scope) bool {
+	return grantScope != scopes.instance
 }
 
 // validateGrantRole validates a grant role identifier.
@@ -273,6 +323,38 @@ func validateGrantPermission(grantScope scope, permission string) error {
 		if !slices.Contains(grantRoutinePermissions, perm) {
 			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
 		}
+	case scopes.domain:
+		if !slices.Contains(grantDomainPermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.fdw:
+		if !slices.Contains(grantFdwPermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.foreignServer:
+		if !slices.Contains(grantForeignServerPermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.language:
+		if !slices.Contains(grantLanguagePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.largeObject:
+		if !slices.Contains(grantLargeObjectPermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.parameter:
+		if !slices.Contains(grantParameterPermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.tablespace:
+		if !slices.Contains(grantTablespacePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.typ:
+		if !slices.Contains(grantTypePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
 	default:
 		return fmt.Errorf("unsupported scope: %s", grantScope)
 	}
@@ -299,6 +381,39 @@ func validateGrantPrincipalAndPermission(grantScope scope, roleName, permission 
 		return err
 	}
 	return validateGrantPermission(grantScope, permission)
+}
+
+// checkPermissionToken formats permission tokens for has_*_privilege checks.
+func checkPermissionToken(permission string, withGrantOption bool) string {
+	if withGrantOption {
+		return permission + " WITH GRANT OPTION"
+	}
+	return permission
+}
+
+// applyWithGrantOptionClause appends WITH GRANT OPTION to rendered GRANT statements.
+func applyWithGrantOptionClause(query string, enabled bool) string {
+	if !enabled {
+		return query
+	}
+	trimmed := strings.TrimSpace(query)
+	trimmed = strings.TrimSuffix(trimmed, ";")
+	return trimmed + " WITH GRANT OPTION;"
+}
+
+// validateGrantResource validates object resource names for the target grant scope.
+func validateGrantResource(grantScope scope, resource string) error {
+	if strings.TrimSpace(resource) == "" {
+		return nil
+	}
+	if grantScope == scopes.largeObject {
+		loid, err := strconv.ParseUint(resource, 10, 32)
+		if err != nil || loid == 0 {
+			return fmt.Errorf("large object resource must be a positive integer loid")
+		}
+		return nil
+	}
+	return validatePostgresQuotedIdentifier(resource)
 }
 
 // readOptionalStringListInput reads an optional string-or-[]string input from context and returns
@@ -377,6 +492,10 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 	if err != nil {
 		return nil, err
 	}
+	withGrantOption, err := blackstart.ContextInputAs[bool](mctx, inputWithGrantOption, false)
+	if err != nil {
+		return nil, err
+	}
 	if all &&
 		normalizedScope != scopes.table &&
 		normalizedScope != scopes.sequence &&
@@ -391,6 +510,12 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources, all)
 	if err != nil {
 		return nil, err
+	}
+	if withGrantOption && !supportsWithGrantOption(normalizedScope) {
+		return nil, fmt.Errorf(
+			"input %q is not supported when scope is %s",
+			inputWithGrantOption, normalizedScope,
+		)
 	}
 
 	targets := make([]*grant, 0, len(roles)*len(permissions)*len(schemas)*len(resources))
@@ -410,18 +535,19 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 				}
 				for _, resource := range resources {
 					if resource != "" {
-						if resourceErr := validatePostgresQuotedIdentifier(resource); resourceErr != nil {
+						if resourceErr := validateGrantResource(normalizedScope, resource); resourceErr != nil {
 							return nil, resourceErr
 						}
 					}
 					targets = append(
 						targets, &grant{
-							Role:       roleName,
-							Permission: normalizedPermission,
-							Schema:     schema,
-							Resource:   resource,
-							Scope:      string(normalizedScope),
-							All:        all,
+							Role:            roleName,
+							Permission:      normalizedPermission,
+							Schema:          schema,
+							Resource:        resource,
+							Scope:           string(normalizedScope),
+							All:             all,
+							WithGrantOption: withGrantOption,
 						},
 					)
 				}
@@ -439,15 +565,26 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:   "postgres_grant",
 		Name: "PostgreSQL grant",
-		Description: "Ensures that a Postgres role has the specified Permission on a resource.\n\n" +
-			"If multiple values are provided for `role`, `permission`, `schema`, or `resource`, " +
-			"Blackstart expands all possible combinations of the Operation and applies them all.",
+		Description: util.CleanString(
+			`
+Ensures that Postgres roles have the specified permissions on resources. The scope specifies the 
+type of resources where the permissions will be applied.
+
+If multiple values are provided for '''role''', '''permission''', '''schema''', or '''resource''', 
+Blackstart expands all possible combinations of the Operation and applies them all.
+
+The permissions allowed vary by scope. See the [PostgreSQL GRANT documentation](https://www.postgresql.org/docs/current/sql-grant.html) 
+for details on valid permissions for each scope.
+`,
+		),
 		Requirements: []string{
 			"A valid Postgres `connection` input must be provided.",
-			"The database user of the `connection` must be a member of a role that has `ADMIN OPTION` on the target roles.",
+			"The database user of the `connection` must have sufficient privileges to apply the requested grants.",
 			"Target roles/users and target resources must exist for the selected `scope`.",
 			"For `TABLE` and `SEQUENCE` scopes, both schema and resource must exist and be addressable by the user.",
-			"For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, `schema` must be provided and `resource` must reference a routine signature (for example `do_work(integer)`) unless `all` is true.",
+			"For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, `schema` must be provided and `resource` must be a routine signature that includes argument types unless `all` is true.",
+			"`LARGE_OBJECT` scope requires `resource` to be a numeric large object OID (`loid`).",
+			"`PARAMETER` scope requires a Postgres version that supports parameter privileges (`GRANT ... ON PARAMETER ...`) and `has_parameter_privilege`.",
 		},
 		Inputs: map[string]blackstart.InputValue{
 			inputConnection: {
@@ -471,17 +608,23 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 				Required:    false,
 			},
 			inputResource: {
-				Description: "Resource(s) where the permission(s) are to be applied. This might be a database name, table name, or schema name.",
+				Description: "Resource(s) where the permission(s) are applied. For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, provide a routine signature with argument types.",
 				Types:       []reflect.Type{reflect.TypeFor[string](), reflect.TypeFor[[]string]()},
 				Required:    false,
 			},
 			inputScope: {
-				Description: "Scope of the resource where the permission is to be applied. This might be a database, table, or schema.",
+				Description: "Scope of the resource where the permission is to be applied. Supported values: `INSTANCE`, `DATABASE`, `SCHEMA`, `TABLE`, `SEQUENCE`, `FUNCTION`, `PROCEDURE`, `ROUTINE`, `DOMAIN`, `FDW`, `FOREIGN_SERVER`, `LANGUAGE`, `LARGE_OBJECT`, `PARAMETER`, `TABLESPACE`, `TYPE`.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputAll: {
 				Description: "Apply permissions to all resources of the scope (if supported) in the schema. When set, the resource input must be empty.",
+				Type:        reflect.TypeFor[bool](),
+				Required:    false,
+				Default:     false,
+			},
+			inputWithGrantOption: {
+				Description: "Request `WITH GRANT OPTION` for supported scopes. Not supported for `INSTANCE` scope.",
 				Type:        reflect.TypeFor[bool](),
 				Required:    false,
 				Default:     false,
@@ -639,6 +782,41 @@ inputs:
   scope: ROUTINE
   schema: public
   all: true`,
+			"Grant SELECT with grant option on a table": `id: grant-select-with-grant-option
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: SELECT
+  scope: TABLE
+  schema: public
+  resource: orders
+  with_grant_option: true`,
+			"Grant USAGE on a type": `id: grant-usage-on-type
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: USAGE
+  scope: TYPE
+  resource: status_type`,
+			"Grant SET on a configuration parameter": `id: grant-set-on-parameter
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: SET
+  scope: PARAMETER
+  resource: work_mem`,
 		},
 	}
 }
@@ -674,6 +852,19 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 		if err != nil {
 			return fmt.Errorf("parameter %s is invalid: %w", inputAll, err)
 		}
+	}
+	withGrantOption := false
+	if withGrantOptionInput, ok := op.Inputs[inputWithGrantOption]; ok && withGrantOptionInput.IsStatic() {
+		withGrantOption, err = blackstart.InputAs[bool](withGrantOptionInput, false)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputWithGrantOption, err)
+		}
+	}
+	if withGrantOption && !supportsWithGrantOption(grantScope) {
+		return fmt.Errorf(
+			"parameter %s is invalid: not supported when scope is %s",
+			inputWithGrantOption, grantScope,
+		)
 	}
 	if all &&
 		grantScope != scopes.table &&
@@ -726,7 +917,16 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 			if strings.TrimSpace(v) == "" {
 				continue
 			}
-			if idErr := validatePostgresQuotedIdentifier(v); idErr != nil {
+			if p == inputSchema && (grantScope == scopes.domain || grantScope == scopes.fdw || grantScope == scopes.foreignServer || grantScope == scopes.language || grantScope == scopes.largeObject || grantScope == scopes.parameter || grantScope == scopes.tablespace || grantScope == scopes.typ) {
+				return fmt.Errorf("parameter %s is invalid: not supported when scope is %s", p, grantScope)
+			}
+			var idErr error
+			if p == inputSchema {
+				idErr = validatePostgresQuotedIdentifier(v)
+			} else {
+				idErr = validateGrantResource(grantScope, v)
+			}
+			if idErr != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", p, idErr)
 			}
 			if p == inputResource && all {
@@ -840,62 +1040,113 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 		return getGrantInstanceQuery, queryParams, nil
 	case scopes.database:
 		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
-			queryParams := []interface{}{target.Role, target.Resource}
+			queryParams := []interface{}{
+				target.Role,
+				target.Resource,
+				checkPermissionToken("CREATE", target.WithGrantOption),
+				checkPermissionToken("CONNECT", target.WithGrantOption),
+				checkPermissionToken("TEMPORARY", target.WithGrantOption),
+			}
 			return getGrantDatabaseAllQuery, queryParams, nil
 		}
 		queryParams := []interface{}{target.Role, normalizeGrantPermissionToken(
-			grantScope, target.Permission,
+			grantScope, checkPermissionToken(target.Permission, target.WithGrantOption),
 		), target.Resource}
 		return getGrantDatabaseQuery, queryParams, nil
 	case scopes.schema:
 		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
-			queryParams := []interface{}{target.Role, target.Resource}
+			queryParams := []interface{}{
+				target.Role,
+				target.Resource,
+				checkPermissionToken("CREATE", target.WithGrantOption),
+				checkPermissionToken("USAGE", target.WithGrantOption),
+			}
 			return getGrantSchemaAllQuery, queryParams, nil
 		}
 		queryParams := []interface{}{normalizeGrantPermissionToken(
-			grantScope, target.Permission,
+			grantScope, checkPermissionToken(target.Permission, target.WithGrantOption),
 		), target.Role, target.Resource}
 		return getGrantSchemaQuery, queryParams, nil
 	case scopes.table:
 		if target.All {
 			if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
-				queryParams := []interface{}{target.Role, target.Schema}
+				queryParams := []interface{}{
+					target.Role,
+					target.Schema,
+					checkPermissionToken("SELECT", target.WithGrantOption),
+					checkPermissionToken("INSERT", target.WithGrantOption),
+					checkPermissionToken("UPDATE", target.WithGrantOption),
+					checkPermissionToken("DELETE", target.WithGrantOption),
+					checkPermissionToken("TRUNCATE", target.WithGrantOption),
+					checkPermissionToken("REFERENCES", target.WithGrantOption),
+					checkPermissionToken("TRIGGER", target.WithGrantOption),
+					checkPermissionToken("MAINTAIN", target.WithGrantOption),
+				}
 				return getGrantAllTablesInSchemaAllQuery, queryParams, nil
 			}
 			queryParams := []interface{}{
 				target.Role,
 				target.Schema,
-				normalizeGrantPermissionToken(grantScope, target.Permission),
+				checkPermissionToken(
+					normalizeGrantPermissionToken(grantScope, target.Permission), target.WithGrantOption,
+				),
 			}
 			return getGrantAllTablesInSchemaQuery, queryParams, nil
 		}
 		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
-			queryParams := []interface{}{target.Role, target.Schema, target.Resource}
+			queryParams := []interface{}{
+				target.Role,
+				target.Schema,
+				target.Resource,
+				checkPermissionToken("SELECT", target.WithGrantOption),
+				checkPermissionToken("INSERT", target.WithGrantOption),
+				checkPermissionToken("UPDATE", target.WithGrantOption),
+				checkPermissionToken("DELETE", target.WithGrantOption),
+				checkPermissionToken("TRUNCATE", target.WithGrantOption),
+				checkPermissionToken("REFERENCES", target.WithGrantOption),
+				checkPermissionToken("TRIGGER", target.WithGrantOption),
+				checkPermissionToken("MAINTAIN", target.WithGrantOption),
+			}
 			return getGrantTableAllQuery, queryParams, nil
 		}
 		queryParams := []interface{}{normalizeGrantPermissionToken(
-			grantScope, target.Permission,
+			grantScope, checkPermissionToken(target.Permission, target.WithGrantOption),
 		), target.Role, target.Resource, target.Schema}
 		return getGrantTableQuery, queryParams, nil
 	case scopes.sequence:
 		if target.All {
 			if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
-				queryParams := []interface{}{target.Role, target.Schema}
+				queryParams := []interface{}{
+					target.Role,
+					target.Schema,
+					checkPermissionToken("USAGE", target.WithGrantOption),
+					checkPermissionToken("SELECT", target.WithGrantOption),
+					checkPermissionToken("UPDATE", target.WithGrantOption),
+				}
 				return getGrantAllSequencesInSchemaAllQuery, queryParams, nil
 			}
 			queryParams := []interface{}{
 				target.Role,
 				target.Schema,
-				normalizeGrantPermissionToken(grantScope, target.Permission),
+				checkPermissionToken(
+					normalizeGrantPermissionToken(grantScope, target.Permission), target.WithGrantOption,
+				),
 			}
 			return getGrantAllSequencesInSchemaQuery, queryParams, nil
 		}
 		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
-			queryParams := []interface{}{target.Role, target.Schema, target.Resource}
+			queryParams := []interface{}{
+				target.Role,
+				target.Schema,
+				target.Resource,
+				checkPermissionToken("USAGE", target.WithGrantOption),
+				checkPermissionToken("SELECT", target.WithGrantOption),
+				checkPermissionToken("UPDATE", target.WithGrantOption),
+			}
 			return getGrantSequenceAllQuery, queryParams, nil
 		}
 		queryParams := []interface{}{
-			normalizeGrantPermissionToken(grantScope, target.Permission),
+			checkPermissionToken(normalizeGrantPermissionToken(grantScope, target.Permission), target.WithGrantOption),
 			target.Role,
 			target.Resource,
 			target.Schema,
@@ -905,7 +1156,9 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 		normalizedPermission := normalizeGrantPermissionToken(grantScope, target.Permission)
 		if target.All {
 			if normalizedPermission == "ALL" {
-				queryParams := []interface{}{target.Role, target.Schema}
+				queryParams := []interface{}{target.Role, target.Schema, checkPermissionToken(
+					"EXECUTE", target.WithGrantOption,
+				)}
 				switch grantScope {
 				case scopes.function:
 					return getGrantAllFunctionsInSchemaAllQuery, queryParams, nil
@@ -915,7 +1168,9 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 					return getGrantAllRoutinesInSchemaAllQuery, queryParams, nil
 				}
 			}
-			queryParams := []interface{}{target.Role, target.Schema, normalizedPermission}
+			queryParams := []interface{}{target.Role, target.Schema, checkPermissionToken(
+				normalizedPermission, target.WithGrantOption,
+			)}
 			switch grantScope {
 			case scopes.function:
 				return getGrantAllFunctionsInSchemaQuery, queryParams, nil
@@ -925,7 +1180,9 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 				return getGrantAllRoutinesInSchemaQuery, queryParams, nil
 			}
 		}
-		queryParams := []interface{}{target.Role, target.Resource, target.Schema, normalizedPermission}
+		queryParams := []interface{}{target.Role, target.Resource, target.Schema, checkPermissionToken(
+			normalizedPermission, target.WithGrantOption,
+		)}
 		switch grantScope {
 		case scopes.function:
 			return getGrantFunctionQuery, queryParams, nil
@@ -934,6 +1191,94 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 		default:
 			return getGrantRoutineQuery, queryParams, nil
 		}
+	case scopes.domain:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantDomainAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"USAGE", target.WithGrantOption,
+			)}, nil
+		}
+		return getGrantDomainQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.fdw:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantFdwAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"USAGE", target.WithGrantOption,
+			)}, nil
+		}
+		return getGrantFdwQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.foreignServer:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantForeignServerAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"USAGE", target.WithGrantOption,
+			)}, nil
+		}
+		return getGrantForeignServerQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.language:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantLanguageAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"USAGE", target.WithGrantOption,
+			)}, nil
+		}
+		return getGrantLanguageQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.largeObject:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantLargeObjectAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"SELECT", target.WithGrantOption,
+			), checkPermissionToken("UPDATE", target.WithGrantOption)}, nil
+		}
+		return getGrantLargeObjectQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.parameter:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantParameterAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"SET", target.WithGrantOption,
+			), checkPermissionToken("ALTER SYSTEM", target.WithGrantOption)}, nil
+		}
+		return getGrantParameterQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.tablespace:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantTablespaceAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"CREATE", target.WithGrantOption,
+			)}, nil
+		}
+		return getGrantTablespaceQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
+	case scopes.typ:
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			return getGrantTypeAllQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+				"USAGE", target.WithGrantOption,
+			)}, nil
+		}
+		return getGrantTypeQuery, []interface{}{target.Role, target.Resource, checkPermissionToken(
+			normalizeGrantPermissionToken(
+				grantScope, target.Permission,
+			), target.WithGrantOption,
+		)}, nil
 	default:
 		return "", nil, fmt.Errorf("no query for scope: %s", target.Scope)
 	}
@@ -1022,6 +1367,46 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 				tmpl, err = template.New("setGrantRoutine").Parse(setGrantRoutineTemplate)
 			}
 		}
+	case scopes.domain:
+		if !slices.Contains(grantDomainPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid domain permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantDomain").Parse(setGrantDomainTemplate)
+	case scopes.fdw:
+		if !slices.Contains(grantFdwPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid fdw permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantFdw").Parse(setGrantFdwTemplate)
+	case scopes.foreignServer:
+		if !slices.Contains(grantForeignServerPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid foreign server permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantForeignServer").Parse(setGrantForeignServerTemplate)
+	case scopes.language:
+		if !slices.Contains(grantLanguagePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid language permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantLanguage").Parse(setGrantLanguageTemplate)
+	case scopes.largeObject:
+		if !slices.Contains(grantLargeObjectPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid large object permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantLargeObject").Parse(setGrantLargeObjectTemplate)
+	case scopes.parameter:
+		if !slices.Contains(grantParameterPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid parameter permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantParameter").Parse(setGrantParameterTemplate)
+	case scopes.tablespace:
+		if !slices.Contains(grantTablespacePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid tablespace permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantTablespace").Parse(setGrantTablespaceTemplate)
+	case scopes.typ:
+		if !slices.Contains(grantTypePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid type permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("setGrantType").Parse(setGrantTypeTemplate)
 	default:
 		return "", nil, fmt.Errorf("no query for scope: %s", target.Scope)
 	}
@@ -1036,7 +1421,7 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 		return "", nil, err
 	}
 
-	return queryBuffer.String(), nil, nil
+	return applyWithGrantOptionClause(queryBuffer.String(), normalizedTarget.WithGrantOption), nil, nil
 }
 
 // getGrantRevokeQuery constructs the SQL query to revoke a grant based on the target grant object's
@@ -1108,6 +1493,46 @@ func getGrantRevokeQuery(target *grant) (string, []interface{}, error) {
 				tmpl, err = template.New("revokeGrantRoutine").Parse(setRevokeRoutineTemplate)
 			}
 		}
+	case scopes.domain:
+		if !slices.Contains(grantDomainPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid domain permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantDomain").Parse(setRevokeDomainTemplate)
+	case scopes.fdw:
+		if !slices.Contains(grantFdwPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid fdw permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantFdw").Parse(setRevokeFdwTemplate)
+	case scopes.foreignServer:
+		if !slices.Contains(grantForeignServerPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid foreign server permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantForeignServer").Parse(setRevokeForeignServerTemplate)
+	case scopes.language:
+		if !slices.Contains(grantLanguagePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid language permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantLanguage").Parse(setRevokeLanguageTemplate)
+	case scopes.largeObject:
+		if !slices.Contains(grantLargeObjectPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid large object permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantLargeObject").Parse(setRevokeLargeObjectTemplate)
+	case scopes.parameter:
+		if !slices.Contains(grantParameterPermissions, perm) {
+			return "", nil, fmt.Errorf("invalid parameter permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantParameter").Parse(setRevokeParameterTemplate)
+	case scopes.tablespace:
+		if !slices.Contains(grantTablespacePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid tablespace permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantTablespace").Parse(setRevokeTablespaceTemplate)
+	case scopes.typ:
+		if !slices.Contains(grantTypePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid type permission: %s", target.Permission)
+		}
+		tmpl, err = template.New("revokeGrantType").Parse(setRevokeTypeTemplate)
 	default:
 		return "", nil, fmt.Errorf("no revoke query for scope: %s", target.Scope)
 	}
