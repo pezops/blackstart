@@ -32,7 +32,7 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 					inputAll:        blackstart.NewInputFromValue(true),
 				},
 			},
-			wantErr: "only supported when scope is TABLE",
+			wantErr: "only supported when scope is TABLE or SEQUENCE",
 		},
 		{
 			name: "rejects_all_tables_with_resource",
@@ -50,6 +50,37 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 				},
 			},
 			wantErr: "must be empty when all is true",
+		},
+		{
+			name: "accepts_sequence_permissions",
+			op: blackstart.Operation{
+				Id:     "grant-validate-sequence-permission",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("USAGE"),
+					inputScope:      blackstart.NewInputFromValue("sequence"),
+					inputSchema:     blackstart.NewInputFromValue("public"),
+					inputResource:   blackstart.NewInputFromValue("orders_id_seq"),
+				},
+			},
+		},
+		{
+			name: "rejects_invalid_sequence_permission",
+			op: blackstart.Operation{
+				Id:     "grant-validate-sequence-invalid-permission",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("DELETE"),
+					inputScope:      blackstart.NewInputFromValue("sequence"),
+					inputSchema:     blackstart.NewInputFromValue("public"),
+					inputResource:   blackstart.NewInputFromValue("orders_id_seq"),
+				},
+			},
+			wantErr: "invalid permission",
 		},
 		{
 			name: "rejects_comma_delimited_permission",
@@ -250,6 +281,62 @@ func TestGrant(t *testing.T) {
 				inputSchema:     blackstart.NewInputFromValue([]string{"blackstart_schema_a", "blackstart_schema_b"}),
 				inputResource:   blackstart.NewInputFromValue([]string{"orders", "invoices"}),
 				inputScope:      blackstart.NewInputFromValue("table"),
+				inputConnection: blackstart.NewInputFromValue(db),
+			},
+			grant: grantModule{},
+		},
+		{
+			name: "sequence_usage_grant",
+			setup: func(t *testing.T) {
+				_, err = db.Exec("CREATE ROLE blackstart_7")
+				if err != nil {
+					t.Fatalf("failed to create Role: %v", err)
+				}
+				_, err = db.Exec(`CREATE SCHEMA IF NOT EXISTS blackstart_seq_schema`)
+				if err != nil {
+					t.Fatalf("failed to create schema: %v", err)
+				}
+				_, err = db.Exec(`CREATE SEQUENCE IF NOT EXISTS blackstart_seq_schema.blackstart_seq`)
+				if err != nil {
+					t.Fatalf("failed to create sequence: %v", err)
+				}
+			},
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("blackstart_7"),
+				inputPermission: blackstart.NewInputFromValue("USAGE"),
+				inputSchema:     blackstart.NewInputFromValue("blackstart_seq_schema"),
+				inputResource:   blackstart.NewInputFromValue("blackstart_seq"),
+				inputScope:      blackstart.NewInputFromValue("sequence"),
+				inputConnection: blackstart.NewInputFromValue(db),
+			},
+			grant: grantModule{},
+		},
+		{
+			name: "sequence_all_in_schema_grant",
+			setup: func(t *testing.T) {
+				_, err = db.Exec("CREATE ROLE blackstart_8")
+				if err != nil {
+					t.Fatalf("failed to create Role: %v", err)
+				}
+				_, err = db.Exec(`CREATE SCHEMA IF NOT EXISTS blackstart_seq_all_schema`)
+				if err != nil {
+					t.Fatalf("failed to create schema: %v", err)
+				}
+				_, err = db.Exec(`CREATE SEQUENCE IF NOT EXISTS blackstart_seq_all_schema.seq_a`)
+				if err != nil {
+					t.Fatalf("failed to create sequence seq_a: %v", err)
+				}
+				_, err = db.Exec(`CREATE SEQUENCE IF NOT EXISTS blackstart_seq_all_schema.seq_b`)
+				if err != nil {
+					t.Fatalf("failed to create sequence seq_b: %v", err)
+				}
+			},
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("blackstart_8"),
+				inputPermission: blackstart.NewInputFromValue("USAGE"),
+				inputSchema:     blackstart.NewInputFromValue("blackstart_seq_all_schema"),
+				inputScope:      blackstart.NewInputFromValue("sequence"),
+				inputAll:        blackstart.NewInputFromValue(true),
 				inputConnection: blackstart.NewInputFromValue(db),
 			},
 			grant: grantModule{},
@@ -496,7 +583,7 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 			validate: func(t *testing.T, grants []*grant) {
 				for _, g := range grants {
 					require.Equal(t, "TABLE", g.Scope)
-					require.True(t, g.AllTables)
+					require.True(t, g.All)
 					require.NotEmpty(t, g.Schema)
 					require.Empty(t, g.Resource)
 				}
@@ -519,6 +606,35 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 					require.NotEmpty(t, g.Resource)
 				}
 			},
+		},
+		{
+			name: "sequence_scope_all_multi_schema",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue([]string{"USAGE", "SELECT"}),
+				inputScope:      blackstart.NewInputFromValue("sequence"),
+				inputSchema:     blackstart.NewInputFromValue([]string{"a", "b"}),
+				inputAll:        blackstart.NewInputFromValue(true),
+			},
+			wantLen: 4,
+			validate: func(t *testing.T, grants []*grant) {
+				for _, g := range grants {
+					require.Equal(t, "SEQUENCE", g.Scope)
+					require.True(t, g.All)
+					require.NotEmpty(t, g.Schema)
+					require.Empty(t, g.Resource)
+				}
+			},
+		},
+		{
+			name: "sequence_scope_requires_resource_when_all_false",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("USAGE"),
+				inputScope:      blackstart.NewInputFromValue("sequence"),
+				inputSchema:     blackstart.NewInputFromValue("public"),
+			},
+			wantErr: `input "resource" must be provided when scope is SEQUENCE`,
 		},
 	}
 
@@ -629,7 +745,7 @@ func TestGrantQueries_AllScopes_Render(t *testing.T) {
 				Permission: "SELECT",
 				Schema:     "blackstart_render_all_tables_schema",
 				Scope:      "TABLE",
-				AllTables:  true,
+				All:        true,
 			},
 			setupSQL: []string{
 				`DROP ROLE IF EXISTS "blackstart_render_all_tables_role";`,
@@ -660,6 +776,45 @@ func TestGrantQueries_AllScopes_Render(t *testing.T) {
 			},
 			setContains:    []string{"GRANT", "ON TABLE", `"blackstart_render_table_schema"."blackstart_render_orders"`},
 			revokeContains: []string{"REVOKE", "ON TABLE", `"blackstart_render_table_schema"."blackstart_render_orders"`},
+		},
+		{
+			name: "sequence",
+			target: &grant{
+				Role:       "blackstart_render_sequence_role",
+				Permission: "USAGE",
+				Schema:     "blackstart_render_sequence_schema",
+				Resource:   "blackstart_render_sequence",
+				Scope:      "SEQUENCE",
+			},
+			setupSQL: []string{
+				`DROP ROLE IF EXISTS "blackstart_render_sequence_role";`,
+				`CREATE ROLE "blackstart_render_sequence_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_render_sequence_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_render_sequence_schema";`,
+				`CREATE SEQUENCE "blackstart_render_sequence_schema"."blackstart_render_sequence";`,
+			},
+			setContains:    []string{"GRANT", "ON SEQUENCE", `"blackstart_render_sequence_schema"."blackstart_render_sequence"`},
+			revokeContains: []string{"REVOKE", "ON SEQUENCE", `"blackstart_render_sequence_schema"."blackstart_render_sequence"`},
+		},
+		{
+			name: "sequence_all_in_schema",
+			target: &grant{
+				Role:       "blackstart_render_sequence_all_role",
+				Permission: "USAGE",
+				Schema:     "blackstart_render_sequence_all_schema",
+				Scope:      "SEQUENCE",
+				All:        true,
+			},
+			setupSQL: []string{
+				`DROP ROLE IF EXISTS "blackstart_render_sequence_all_role";`,
+				`CREATE ROLE "blackstart_render_sequence_all_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_render_sequence_all_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_render_sequence_all_schema";`,
+				`CREATE SEQUENCE "blackstart_render_sequence_all_schema"."seq_a";`,
+				`CREATE SEQUENCE "blackstart_render_sequence_all_schema"."seq_b";`,
+			},
+			setContains:    []string{"GRANT", "ON ALL SEQUENCES IN SCHEMA", `"blackstart_render_sequence_all_schema"`},
+			revokeContains: []string{"REVOKE", "ON ALL SEQUENCES IN SCHEMA", `"blackstart_render_sequence_all_schema"`},
 		},
 	}
 

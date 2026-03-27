@@ -26,16 +26,18 @@ var scopes = struct {
 	instance scope
 	schema   scope
 	table    scope
+	sequence scope
 	database scope
 }{
 	instance: "INSTANCE",
 	schema:   "SCHEMA",
 	table:    "TABLE",
+	sequence: "SEQUENCE",
 	database: "DATABASE",
 }
 
 // scopesList contains the valid scopes for a grant operation that can be referenced in code.
-var scopesList = []scope{scopes.instance, scopes.schema, scopes.table, scopes.database}
+var scopesList = []scope{scopes.instance, scopes.schema, scopes.table, scopes.sequence, scopes.database}
 
 var _ blackstart.Module = &grantModule{}
 var requiredGrantParameters = []string{inputRole, inputPermission, inputConnection}
@@ -44,6 +46,7 @@ var grantDatabasePermissions = []string{"CREATE", "CONNECT", "TEMPORARY", "TEMP"
 var grantTablePermissions = []string{
 	"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN", "ALL",
 }
+var grantSequencePermissions = []string{"USAGE", "SELECT", "UPDATE", "ALL"}
 var requiredRoleParameters = []string{inputName}
 
 func NewPostgresGrant() blackstart.Module {
@@ -68,8 +71,8 @@ type grant struct {
 	// Scope is the type of Resource where the Permission is to be applied. This might be a database,
 	// table, or schema.
 	Scope string
-	// AllTables indicates the grant should target all tables in Schema when Scope is TABLE.
-	AllTables bool
+	// All indicates the grant should target all resources in Schema for scopes that support it.
+	All bool
 }
 
 // normalizeRequiredStringList trims required list values and rejects empty entries.
@@ -112,7 +115,7 @@ func normalizeOptionalStringList(values []string) []string {
 // normalizeScopeTargets constrains schema/resource dimensions to the valid target model for each
 // scope and returns normalized schema/resource lists for expansion.
 func normalizeScopeTargets(
-	grantScope scope, schemas []string, resources []string, allTables bool,
+	grantScope scope, schemas []string, resources []string, all bool,
 ) ([]string, []string, error) {
 	switch grantScope {
 	case scopes.instance:
@@ -158,7 +161,7 @@ func normalizeScopeTargets(
 		if len(schemas) == 1 && schemas[0] == "" {
 			schemas = []string{"public"}
 		}
-		if allTables {
+		if all {
 			if len(resources) > 1 || (len(resources) == 1 && resources[0] != "") {
 				return nil, nil, fmt.Errorf(
 					"input %q must be empty when %q is true", inputResource, inputAll,
@@ -168,6 +171,23 @@ func normalizeScopeTargets(
 		}
 		if len(resources) == 1 && resources[0] == "" {
 			return nil, nil, fmt.Errorf("input %q must be provided when scope is TABLE", inputResource)
+		}
+		return schemas, resources, nil
+	case scopes.sequence:
+		// SEQUENCE grants target schema-qualified sequences. Set the default schema to public when omitted.
+		if len(schemas) == 1 && schemas[0] == "" {
+			schemas = []string{"public"}
+		}
+		if all {
+			if len(resources) > 1 || (len(resources) == 1 && resources[0] != "") {
+				return nil, nil, fmt.Errorf(
+					"input %q must be empty when %q is true", inputResource, inputAll,
+				)
+			}
+			return schemas, []string{""}, nil
+		}
+		if len(resources) == 1 && resources[0] == "" {
+			return nil, nil, fmt.Errorf("input %q must be provided when scope is SEQUENCE", inputResource)
 		}
 		return schemas, resources, nil
 	default:
@@ -210,6 +230,10 @@ func validateGrantPermission(grantScope scope, permission string) error {
 		}
 	case scopes.table:
 		if !slices.Contains(grantTablePermissions, perm) {
+			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
+		}
+	case scopes.sequence:
+		if !slices.Contains(grantSequencePermissions, perm) {
 			return fmt.Errorf("invalid permission %q for scope %s", permission, grantScope)
 		}
 	default:
@@ -312,14 +336,14 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 	if err != nil {
 		return nil, err
 	}
-	allTables, err := blackstart.ContextInputAs[bool](mctx, inputAll, false)
+	all, err := blackstart.ContextInputAs[bool](mctx, inputAll, false)
 	if err != nil {
 		return nil, err
 	}
-	if allTables && normalizedScope != scopes.table {
-		return nil, fmt.Errorf("input %q is only supported when scope is TABLE", inputAll)
+	if all && normalizedScope != scopes.table && normalizedScope != scopes.sequence {
+		return nil, fmt.Errorf("input %q is only supported when scope is TABLE or SEQUENCE", inputAll)
 	}
-	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources, allTables)
+	schemas, resources, err = normalizeScopeTargets(normalizedScope, schemas, resources, all)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +376,7 @@ func expandGrantsFromContext(mctx blackstart.ModuleContext) ([]*grant, error) {
 							Schema:     schema,
 							Resource:   resource,
 							Scope:      string(normalizedScope),
-							AllTables:  allTables,
+							All:        all,
 						},
 					)
 				}
@@ -521,6 +545,18 @@ inputs:
   scope: TABLE
   schema: public
   all: true`,
+			"Grant USAGE on all sequences in a schema": `id: grant-usage-all-sequences-in-public
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: USAGE
+  scope: SEQUENCE
+  schema: public
+  all: true`,
 		},
 	}
 }
@@ -550,15 +586,15 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 	if err != nil {
 		return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
 	}
-	allTables := false
-	if allTablesInput, ok := op.Inputs[inputAll]; ok && allTablesInput.IsStatic() {
-		allTables, err = blackstart.InputAs[bool](allTablesInput, false)
+	all := false
+	if allInput, ok := op.Inputs[inputAll]; ok && allInput.IsStatic() {
+		all, err = blackstart.InputAs[bool](allInput, false)
 		if err != nil {
 			return fmt.Errorf("parameter %s is invalid: %w", inputAll, err)
 		}
 	}
-	if allTables && grantScope != scopes.table {
-		return fmt.Errorf("parameter %s is invalid: only supported when scope is TABLE", inputAll)
+	if all && grantScope != scopes.table && grantScope != scopes.sequence {
+		return fmt.Errorf("parameter %s is invalid: only supported when scope is TABLE or SEQUENCE", inputAll)
 	}
 
 	rolesInput := op.Inputs[inputRole]
@@ -603,7 +639,7 @@ func (g *grantModule) Validate(op blackstart.Operation) error {
 			if idErr := validatePostgresQuotedIdentifier(v); idErr != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", p, idErr)
 			}
-			if p == inputResource && allTables {
+			if p == inputResource && all {
 				return fmt.Errorf("parameter %s is invalid: must be empty when %s is true", p, inputAll)
 			}
 		}
@@ -731,7 +767,7 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 		), target.Role, target.Resource}
 		return getGrantSchemaQuery, queryParams, nil
 	case scopes.table:
-		if target.AllTables {
+		if target.All {
 			if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
 				queryParams := []interface{}{target.Role, target.Schema}
 				return getGrantAllTablesInSchemaAllQuery, queryParams, nil
@@ -751,8 +787,32 @@ func getGrantExistsQuery(target *grant) (string, []interface{}, error) {
 			grantScope, target.Permission,
 		), target.Role, target.Resource, target.Schema}
 		return getGrantTableQuery, queryParams, nil
+	case scopes.sequence:
+		if target.All {
+			if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+				queryParams := []interface{}{target.Role, target.Schema}
+				return getGrantAllSequencesInSchemaAllQuery, queryParams, nil
+			}
+			queryParams := []interface{}{
+				target.Role,
+				target.Schema,
+				normalizeGrantPermissionToken(grantScope, target.Permission),
+			}
+			return getGrantAllSequencesInSchemaQuery, queryParams, nil
+		}
+		if normalizeGrantPermissionToken(grantScope, target.Permission) == "ALL" {
+			queryParams := []interface{}{target.Role, target.Schema, target.Resource}
+			return getGrantSequenceAllQuery, queryParams, nil
+		}
+		queryParams := []interface{}{
+			normalizeGrantPermissionToken(grantScope, target.Permission),
+			target.Role,
+			target.Resource,
+			target.Schema,
+		}
+		return getGrantSequenceQuery, queryParams, nil
 	default:
-		return "", nil, fmt.Errorf("no query for Scope: %s", target.Scope)
+		return "", nil, fmt.Errorf("no query for scope: %s", target.Scope)
 	}
 }
 
@@ -766,7 +826,7 @@ func stringToScope(s string) (scope, error) {
 			return sc, nil
 		}
 	}
-	return "", fmt.Errorf("invalid Scope: %s", s)
+	return "", fmt.Errorf("invalid scope: %s", s)
 }
 
 // getGrantSetQuery constructs the SQL query to set a grant based on the target grant object's
@@ -789,25 +849,34 @@ func getGrantSetQuery(target *grant) (string, []interface{}, error) {
 		tmpl, err = template.New("setGrantInstance").Parse(setGrantInstanceTemplate)
 	case scopes.database:
 		if !slices.Contains(grantDatabasePermissions, perm) {
-			return "", nil, fmt.Errorf("invalid database Permission: %s", target.Permission)
+			return "", nil, fmt.Errorf("invalid database permission: %s", target.Permission)
 		}
 		tmpl, err = template.New("setGrantDatabase").Parse(setGrantDatabaseTemplate)
 	case scopes.schema:
 		if !slices.Contains(grantSchemaPermissions, perm) {
-			return "", nil, fmt.Errorf("invalid Schema Permission: %s", target.Permission)
+			return "", nil, fmt.Errorf("invalid schema permission: %s", target.Permission)
 		}
 		tmpl, err = template.New("setGrantSchema").Parse(setGrantSchemaTemplate)
 	case scopes.table:
 		if !slices.Contains(grantTablePermissions, perm) {
-			return "", nil, fmt.Errorf("invalid table Permission: %s", target.Permission)
+			return "", nil, fmt.Errorf("invalid table permission: %s", target.Permission)
 		}
-		if target.AllTables {
+		if target.All {
 			tmpl, err = template.New("setGrantAllTables").Parse(setGrantAllTablesTemplate)
 		} else {
 			tmpl, err = template.New("setGrantTable").Parse(setGrantTableTemplate)
 		}
+	case scopes.sequence:
+		if !slices.Contains(grantSequencePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid sequence permission: %s", target.Permission)
+		}
+		if target.All {
+			tmpl, err = template.New("setGrantAllSequences").Parse(setGrantAllSequencesTemplate)
+		} else {
+			tmpl, err = template.New("setGrantSequence").Parse(setGrantSequenceTemplate)
+		}
 	default:
-		return "", nil, fmt.Errorf("no query for Scope: %s", target.Scope)
+		return "", nil, fmt.Errorf("no query for scope: %s", target.Scope)
 	}
 
 	if err != nil {
@@ -842,25 +911,34 @@ func getGrantRevokeQuery(target *grant) (string, []interface{}, error) {
 		tmpl, err = template.New("revokeGrantInstance").Parse(setRevokeInstanceTemplate)
 	case scopes.database:
 		if !slices.Contains(grantDatabasePermissions, perm) {
-			return "", nil, fmt.Errorf("invalid database Permission: %s", target.Permission)
+			return "", nil, fmt.Errorf("invalid database permission: %s", target.Permission)
 		}
 		tmpl, err = template.New("revokeGrantDatabase").Parse(setRevokeDatabaseTemplate)
 	case scopes.schema:
 		if !slices.Contains(grantSchemaPermissions, perm) {
-			return "", nil, fmt.Errorf("invalid Schema Permission: %s", target.Permission)
+			return "", nil, fmt.Errorf("invalid schema permission: %s", target.Permission)
 		}
 		tmpl, err = template.New("revokeGrantSchema").Parse(setRevokeSchemaTemplate)
 	case scopes.table:
 		if !slices.Contains(grantTablePermissions, perm) {
-			return "", nil, fmt.Errorf("invalid table Permission: %s", target.Permission)
+			return "", nil, fmt.Errorf("invalid table permission: %s", target.Permission)
 		}
-		if target.AllTables {
+		if target.All {
 			tmpl, err = template.New("revokeGrantAllTables").Parse(setRevokeAllTablesTemplate)
 		} else {
 			tmpl, err = template.New("revokeGrantTable").Parse(setRevokeTableTemplate)
 		}
+	case scopes.sequence:
+		if !slices.Contains(grantSequencePermissions, perm) {
+			return "", nil, fmt.Errorf("invalid sequence permission: %s", target.Permission)
+		}
+		if target.All {
+			tmpl, err = template.New("revokeGrantAllSequences").Parse(setRevokeAllSequencesTemplate)
+		} else {
+			tmpl, err = template.New("revokeGrantSequence").Parse(setRevokeSequenceTemplate)
+		}
 	default:
-		return "", nil, fmt.Errorf("no revoke query for Scope: %s", target.Scope)
+		return "", nil, fmt.Errorf("no revoke query for scope: %s", target.Scope)
 	}
 
 	if err != nil {

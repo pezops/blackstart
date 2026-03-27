@@ -55,6 +55,23 @@ inputs:
   all: true
 ```
 
+### Grant USAGE on all sequences in a schema
+
+```yaml
+id: grant-usage-all-sequences-in-public
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: app_user
+  permission: USAGE
+  scope: SEQUENCE
+  schema: public
+  all: true
+```
+
 ### Grant across multiple resources
 
 ```yaml

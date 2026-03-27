@@ -57,6 +57,42 @@ SELECT
 FROM pg_tables
 WHERE schemaname = $2;
 `
+	getGrantSequenceQuery    = `SELECT has_sequence_privilege($2, $4 || '.' || $3, $1);`
+	getGrantSequenceAllQuery = `
+SELECT (
+    has_sequence_privilege($1, $2 || '.' || $3, 'USAGE')
+    AND has_sequence_privilege($1, $2 || '.' || $3, 'SELECT')
+    AND has_sequence_privilege($1, $2 || '.' || $3, 'UPDATE')
+);
+`
+	getGrantAllSequencesInSchemaQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_sequence_privilege(
+        $1,
+        format('%I.%I', sequence_schema, sequence_name),
+        $3
+      )
+    ),
+    true
+  ) AS all_sequences_ok
+FROM information_schema.sequences
+WHERE sequence_schema = $2;
+`
+	getGrantAllSequencesInSchemaAllQuery = `
+SELECT
+  COALESCE(
+    bool_and(
+      has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), 'USAGE')
+      AND has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), 'SELECT')
+      AND has_sequence_privilege($1, format('%I.%I', sequence_schema, sequence_name), 'UPDATE')
+    ),
+    true
+  ) AS all_sequences_ok
+FROM information_schema.sequences
+WHERE sequence_schema = $2;
+`
 	getGrantAllTablesInSchemaAllQuery = `
 SELECT
   COALESCE(
@@ -95,11 +131,15 @@ SELECT EXISTS (
 	setGrantSchemaTemplate    = `GRANT {{.Permission}} ON SCHEMA "{{.Resource}}" TO "{{.Role}}";`
 	setGrantTableTemplate     = `GRANT {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
 	setGrantAllTablesTemplate = `GRANT {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantSequenceTemplate  = `GRANT {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
+	setGrantAllSequencesTemplate = `GRANT {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
 	setRevokeInstanceTemplate = `REVOKE "{{.Permission}}" FROM "{{.Role}}";`
 	setRevokeDatabaseTemplate = `REVOKE {{.Permission}} ON DATABASE "{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeSchemaTemplate   = `REVOKE {{.Permission}} ON SCHEMA "{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeTableTemplate    = `REVOKE {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeAllTablesTemplate = `REVOKE {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeSequenceTemplate = `REVOKE {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeAllSequencesTemplate = `REVOKE {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
 	setRoleCreateTemplate     = `CREATE ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleUpdateTemplate     = `ALTER ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
 	setRoleDeleteTemplate     = `DROP ROLE "{{.Name}}";`
