@@ -601,45 +601,60 @@ func (m *defaultPrivilegesModule) Validate(op blackstart.Operation) error {
 		return fmt.Errorf("missing required parameter: %s", inputConnection)
 	}
 
-	scopeRaw, err := blackstart.InputAs[string](op.Inputs[inputScope], true)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
-	}
-	scope, err := parseDefaultPrivilegeScope(scopeRaw)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
-	}
-	scopeSpec, ok := defaultPrivilegeScopeSpecs[scope]
-	if !ok {
-		return fmt.Errorf("parameter %s is invalid: unsupported scope %s", inputScope, scope)
+	scope := defaultPrivilegeScopeTables
+	scopeSpec := defaultPrivilegeScopeSpecs[scope]
+	scopeInput, hasScopeInput := op.Inputs[inputScope]
+	if hasScopeInput && scopeInput.IsStatic() {
+		scopeRaw, err := blackstart.InputAs[string](scopeInput, true)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
+		}
+		parsedScope, err := parseDefaultPrivilegeScope(scopeRaw)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputScope, err)
+		}
+		scope = parsedScope
+		parsedScopeSpec, ok := defaultPrivilegeScopeSpecs[scope]
+		if !ok {
+			return fmt.Errorf("parameter %s is invalid: unsupported scope %s", inputScope, scope)
+		}
+		scopeSpec = parsedScopeSpec
 	}
 
-	roles, err := blackstart.InputAs[[]string](op.Inputs[inputRole], true)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputRole, err)
-	}
-	for _, role := range roles {
-		if err := validateDefaultPrivilegeGrantee(strings.TrimSpace(role)); err != nil {
+	roleInput := op.Inputs[inputRole]
+	if roleInput.IsStatic() {
+		roles, err := blackstart.InputAs[[]string](roleInput, true)
+		if err != nil {
 			return fmt.Errorf("parameter %s is invalid: %w", inputRole, err)
 		}
-	}
-
-	permissions, err := blackstart.InputAs[[]string](op.Inputs[inputPermission], true)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputPermission, err)
-	}
-	for _, permission := range permissions {
-		if err := validateDefaultPrivilegePermission(scope, normalizeDefaultPrivilegePermissionToken(permission)); err != nil {
-			return fmt.Errorf("parameter %s is invalid: %w", inputPermission, err)
+		for _, role := range roles {
+			if err := validateDefaultPrivilegeGrantee(strings.TrimSpace(role)); err != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", inputRole, err)
+			}
 		}
 	}
 
-	withGrantOption, err := blackstart.InputAs[bool](op.Inputs[inputWithGrantOption], false)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputWithGrantOption, err)
+	permissionInput := op.Inputs[inputPermission]
+	if permissionInput.IsStatic() {
+		permissions, err := blackstart.InputAs[[]string](permissionInput, true)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputPermission, err)
+		}
+		for _, permission := range permissions {
+			if err := validateDefaultPrivilegePermission(scope, normalizeDefaultPrivilegePermissionToken(permission)); err != nil {
+				return fmt.Errorf("parameter %s is invalid: %w", inputPermission, err)
+			}
+		}
 	}
-	if op.DoesNotExist && withGrantOption {
-		return fmt.Errorf("parameter %s is invalid: not valid when doesNotExist is true", inputWithGrantOption)
+
+	if withGrantOptionInput, ok := op.Inputs[inputWithGrantOption]; ok && withGrantOptionInput.IsStatic() {
+		withGrantOption, err := blackstart.InputAs[bool](withGrantOptionInput, false)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputWithGrantOption, err)
+		}
+		if op.DoesNotExist && withGrantOption {
+			return fmt.Errorf("parameter %s is invalid: not valid when doesNotExist is true", inputWithGrantOption)
+		}
 	}
 
 	if forRoleInput, ok := op.Inputs[inputForRole]; ok && forRoleInput.IsStatic() {
@@ -677,16 +692,19 @@ func (m *defaultPrivilegesModule) Validate(op blackstart.Operation) error {
 		}
 	}
 
-	revokeModeRaw, err := blackstart.InputAs[string](op.Inputs[inputRevokeMode], false)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputRevokeMode, err)
-	}
-	revokeMode, err := normalizeRevokeMode(revokeModeRaw)
-	if err != nil {
-		return fmt.Errorf("parameter %s is invalid: %w", inputRevokeMode, err)
-	}
-	if !op.DoesNotExist && strings.TrimSpace(revokeModeRaw) != "" && revokeMode != "RESTRICT" {
-		return fmt.Errorf("parameter %s is invalid: only used when doesNotExist is true", inputRevokeMode)
+	revokeModeInput, hasRevokeModeInput := op.Inputs[inputRevokeMode]
+	if hasRevokeModeInput && revokeModeInput.IsStatic() {
+		revokeModeRaw, err := blackstart.InputAs[string](revokeModeInput, false)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputRevokeMode, err)
+		}
+		revokeMode, err := normalizeRevokeMode(revokeModeRaw)
+		if err != nil {
+			return fmt.Errorf("parameter %s is invalid: %w", inputRevokeMode, err)
+		}
+		if !op.DoesNotExist && strings.TrimSpace(revokeModeRaw) != "" && revokeMode != "RESTRICT" {
+			return fmt.Errorf("parameter %s is invalid: only used when doesNotExist is true", inputRevokeMode)
+		}
 	}
 
 	return nil
