@@ -14,6 +14,7 @@ const (
 	inputResource    = "resource"
 	inputScope       = "scope"
 	inputAll         = "all"
+	inputWithGrantOption = "with_grant_option"
 	inputName        = "name"
 	inputCreateDb    = "create_db"
 	inputCreateRole  = "create_role"

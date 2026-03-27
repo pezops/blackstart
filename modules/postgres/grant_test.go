@@ -160,6 +160,50 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "accepts_type_usage_permission",
+			op: blackstart.Operation{
+				Id:     "grant-validate-type-permission",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("USAGE"),
+					inputScope:      blackstart.NewInputFromValue("type"),
+					inputResource:   blackstart.NewInputFromValue("my_type"),
+				},
+			},
+		},
+		{
+			name: "rejects_invalid_large_object_resource",
+			op: blackstart.Operation{
+				Id:     "grant-validate-large-object-resource",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("SELECT"),
+					inputScope:      blackstart.NewInputFromValue("large_object"),
+					inputResource:   blackstart.NewInputFromValue("abc"),
+				},
+			},
+			wantErr: "large object resource must be a positive integer loid",
+		},
+		{
+			name: "rejects_with_grant_option_for_instance_scope",
+			op: blackstart.Operation{
+				Id:     "grant-validate-with-grant-option-instance",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection:      blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:            blackstart.NewInputFromValue("app_user"),
+					inputPermission:      blackstart.NewInputFromValue("pg_monitor"),
+					inputScope:           blackstart.NewInputFromValue("instance"),
+					inputWithGrantOption: blackstart.NewInputFromValue(true),
+				},
+			},
+			wantErr: "not supported when scope is INSTANCE",
+		},
 	}
 
 	for _, tt := range tests {
@@ -454,6 +498,129 @@ func TestGrant(t *testing.T) {
 
 }
 
+func TestGrant_WithGrantOptionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	db, teardownPgInstance := createTestInstance(ctx, t)
+	defer teardownPgInstance()
+
+	tests := []struct {
+		name   string
+		setup  []string
+		inputs map[string]blackstart.Input
+	}{
+		{
+			name: "table_select_with_grant_option",
+			setup: []string{
+				`DROP ROLE IF EXISTS "blackstart_wgo_table_role";`,
+				`CREATE ROLE "blackstart_wgo_table_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_wgo_table_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_wgo_table_schema";`,
+				`CREATE TABLE "blackstart_wgo_table_schema"."orders" (id INT);`,
+			},
+			inputs: map[string]blackstart.Input{
+				inputConnection:      blackstart.NewInputFromValue(db),
+				inputRole:            blackstart.NewInputFromValue("blackstart_wgo_table_role"),
+				inputPermission:      blackstart.NewInputFromValue("SELECT"),
+				inputScope:           blackstart.NewInputFromValue("TABLE"),
+				inputSchema:          blackstart.NewInputFromValue("blackstart_wgo_table_schema"),
+				inputResource:        blackstart.NewInputFromValue("orders"),
+				inputWithGrantOption: blackstart.NewInputFromValue(true),
+			},
+		},
+		{
+			name: "sequence_usage_with_grant_option",
+			setup: []string{
+				`DROP ROLE IF EXISTS "blackstart_wgo_sequence_role";`,
+				`CREATE ROLE "blackstart_wgo_sequence_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_wgo_sequence_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_wgo_sequence_schema";`,
+				`CREATE SEQUENCE "blackstart_wgo_sequence_schema"."orders_id_seq";`,
+			},
+			inputs: map[string]blackstart.Input{
+				inputConnection:      blackstart.NewInputFromValue(db),
+				inputRole:            blackstart.NewInputFromValue("blackstart_wgo_sequence_role"),
+				inputPermission:      blackstart.NewInputFromValue("USAGE"),
+				inputScope:           blackstart.NewInputFromValue("SEQUENCE"),
+				inputSchema:          blackstart.NewInputFromValue("blackstart_wgo_sequence_schema"),
+				inputResource:        blackstart.NewInputFromValue("orders_id_seq"),
+				inputWithGrantOption: blackstart.NewInputFromValue(true),
+			},
+		},
+		{
+			name: "schema_usage_with_grant_option",
+			setup: []string{
+				`DROP ROLE IF EXISTS "blackstart_wgo_schema_role";`,
+				`CREATE ROLE "blackstart_wgo_schema_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_wgo_schema_target" CASCADE;`,
+				`CREATE SCHEMA "blackstart_wgo_schema_target";`,
+			},
+			inputs: map[string]blackstart.Input{
+				inputConnection:      blackstart.NewInputFromValue(db),
+				inputRole:            blackstart.NewInputFromValue("blackstart_wgo_schema_role"),
+				inputPermission:      blackstart.NewInputFromValue("USAGE"),
+				inputScope:           blackstart.NewInputFromValue("SCHEMA"),
+				inputResource:        blackstart.NewInputFromValue("blackstart_wgo_schema_target"),
+				inputWithGrantOption: blackstart.NewInputFromValue(true),
+			},
+		},
+		{
+			name: "function_execute_with_grant_option",
+			setup: []string{
+				`DROP ROLE IF EXISTS "blackstart_wgo_function_role";`,
+				`CREATE ROLE "blackstart_wgo_function_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_wgo_function_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_wgo_function_schema";`,
+				`CREATE OR REPLACE FUNCTION "blackstart_wgo_function_schema"."do_work"(x integer) RETURNS integer LANGUAGE sql AS $$ SELECT x + 1; $$;`,
+				`REVOKE EXECUTE ON FUNCTION "blackstart_wgo_function_schema"."do_work"(integer) FROM PUBLIC;`,
+			},
+			inputs: map[string]blackstart.Input{
+				inputConnection:      blackstart.NewInputFromValue(db),
+				inputRole:            blackstart.NewInputFromValue("blackstart_wgo_function_role"),
+				inputPermission:      blackstart.NewInputFromValue("EXECUTE"),
+				inputScope:           blackstart.NewInputFromValue("FUNCTION"),
+				inputSchema:          blackstart.NewInputFromValue("blackstart_wgo_function_schema"),
+				inputResource:        blackstart.NewInputFromValue("do_work(integer)"),
+				inputWithGrantOption: blackstart.NewInputFromValue(true),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, stmt := range tt.setup {
+				_, err := db.ExecContext(ctx, stmt)
+				require.NoError(t, err)
+			}
+
+			g := grantModule{}
+			mctx := blackstart.InputsToContext(ctx, tt.inputs)
+
+			ok, err := g.Check(mctx)
+			require.NoError(t, err)
+			require.False(t, ok)
+
+			err = g.Set(mctx)
+			require.NoError(t, err)
+
+			ok, err = g.Check(mctx)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			revokeCtx := blackstart.InputsToContext(ctx, tt.inputs, blackstart.DoesNotExistFlag)
+			ok, err = g.Check(revokeCtx)
+			require.NoError(t, err)
+			require.False(t, ok)
+
+			err = g.Set(revokeCtx)
+			require.NoError(t, err)
+
+			ok, err = g.Check(revokeCtx)
+			require.NoError(t, err)
+			require.True(t, ok)
+		})
+	}
+}
+
 func TestExpandGrantsFromContext_InvalidOptionalInputType(t *testing.T) {
 	ctx := blackstart.InputsToContext(
 		context.Background(),
@@ -705,6 +872,36 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 				inputSchema:     blackstart.NewInputFromValue("public"),
 			},
 			wantErr: `input "resource" must be provided when scope is SEQUENCE`,
+		},
+		{
+			name: "domain_scope_requires_resource",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("USAGE"),
+				inputScope:      blackstart.NewInputFromValue("domain"),
+			},
+			wantErr: `input "resource" must be provided when scope is DOMAIN`,
+		},
+		{
+			name: "domain_scope_rejects_schema_input",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("USAGE"),
+				inputScope:      blackstart.NewInputFromValue("domain"),
+				inputSchema:     blackstart.NewInputFromValue("public"),
+				inputResource:   blackstart.NewInputFromValue("my_domain"),
+			},
+			wantErr: `input "schema" is not supported when scope is DOMAIN`,
+		},
+		{
+			name: "large_object_scope_requires_numeric_resource",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("role_a"),
+				inputPermission: blackstart.NewInputFromValue("SELECT"),
+				inputScope:      blackstart.NewInputFromValue("large_object"),
+				inputResource:   blackstart.NewInputFromValue("not-a-loid"),
+			},
+			wantErr: `large object resource must be a positive integer loid`,
 		},
 	}
 
@@ -1063,6 +1260,25 @@ func TestGrantQueryRendering_QuotedIdentifierBoundaries(t *testing.T) {
 		require.NotContains(t, query, `"SELECT"`)
 	})
 
+	t.Run("table_scope_with_grant_option_appends_clause", func(t *testing.T) {
+		target := &grant{
+			Role:            "iam-role@appomni-demo.iam",
+			Permission:      "SELECT",
+			Schema:          "orders-api",
+			Resource:        "daily-rollup",
+			Scope:           "TABLE",
+			WithGrantOption: true,
+		}
+
+		query, _, err := getGrantSetQuery(target)
+		require.NoError(t, err)
+		require.Contains(
+			t,
+			query,
+			`GRANT SELECT ON TABLE "orders-api"."daily-rollup" TO "iam-role@appomni-demo.iam" WITH GRANT OPTION;`,
+		)
+	})
+
 	t.Run("non_instance_scope_rejects_identifier_like_permission", func(t *testing.T) {
 		target := &grant{
 			Role:       "iam-role@appomni-demo.iam",
@@ -1075,4 +1291,122 @@ func TestGrantQueryRendering_QuotedIdentifierBoundaries(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid")
 	})
+}
+
+func TestGrantQueries_NewScopes_RenderOnly(t *testing.T) {
+	tests := []struct {
+		name           string
+		target         *grant
+		setContains    []string
+		revokeContains []string
+	}{
+		{
+			name: "domain",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "USAGE",
+				Resource:   "domain_name",
+				Scope:      "DOMAIN",
+			},
+			setContains:    []string{"GRANT USAGE ON DOMAIN", `"domain_name"`},
+			revokeContains: []string{"REVOKE USAGE ON DOMAIN", `"domain_name"`},
+		},
+		{
+			name: "fdw",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "USAGE",
+				Resource:   "fdw_name",
+				Scope:      "FDW",
+			},
+			setContains:    []string{"GRANT USAGE ON FOREIGN DATA WRAPPER", `"fdw_name"`},
+			revokeContains: []string{"REVOKE USAGE ON FOREIGN DATA WRAPPER", `"fdw_name"`},
+		},
+		{
+			name: "foreign_server",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "USAGE",
+				Resource:   "server_name",
+				Scope:      "FOREIGN_SERVER",
+			},
+			setContains:    []string{"GRANT USAGE ON FOREIGN SERVER", `"server_name"`},
+			revokeContains: []string{"REVOKE USAGE ON FOREIGN SERVER", `"server_name"`},
+		},
+		{
+			name: "language",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "USAGE",
+				Resource:   "plpgsql",
+				Scope:      "LANGUAGE",
+			},
+			setContains:    []string{"GRANT USAGE ON LANGUAGE", `"plpgsql"`},
+			revokeContains: []string{"REVOKE USAGE ON LANGUAGE", `"plpgsql"`},
+		},
+		{
+			name: "large_object",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "SELECT",
+				Resource:   "12345",
+				Scope:      "LARGE_OBJECT",
+			},
+			setContains:    []string{"GRANT SELECT ON LARGE OBJECT 12345"},
+			revokeContains: []string{"REVOKE SELECT ON LARGE OBJECT 12345"},
+		},
+		{
+			name: "parameter",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "SET",
+				Resource:   "work_mem",
+				Scope:      "PARAMETER",
+			},
+			setContains:    []string{"GRANT SET ON PARAMETER", `"work_mem"`},
+			revokeContains: []string{"REVOKE SET ON PARAMETER", `"work_mem"`},
+		},
+		{
+			name: "tablespace",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "CREATE",
+				Resource:   "ts_data",
+				Scope:      "TABLESPACE",
+			},
+			setContains:    []string{"GRANT CREATE ON TABLESPACE", `"ts_data"`},
+			revokeContains: []string{"REVOKE CREATE ON TABLESPACE", `"ts_data"`},
+		},
+		{
+			name: "type",
+			target: &grant{
+				Role:       "role_a",
+				Permission: "USAGE",
+				Resource:   "status_type",
+				Scope:      "TYPE",
+			},
+			setContains:    []string{"GRANT USAGE ON TYPE", `"status_type"`},
+			revokeContains: []string{"REVOKE USAGE ON TYPE", `"status_type"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setQuery, _, err := getGrantSetQuery(tt.target)
+			require.NoError(t, err)
+			for _, c := range tt.setContains {
+				require.Contains(t, setQuery, c)
+			}
+
+			revokeQuery, _, err := getGrantRevokeQuery(tt.target)
+			require.NoError(t, err)
+			for _, c := range tt.revokeContains {
+				require.Contains(t, revokeQuery, c)
+			}
+
+			_, existsParams, err := getGrantExistsQuery(tt.target)
+			require.NoError(t, err)
+			require.NotEmpty(t, existsParams)
+		})
+	}
 }
