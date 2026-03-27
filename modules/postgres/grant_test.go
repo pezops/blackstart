@@ -19,6 +19,39 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 		wantErr string
 	}{
 		{
+			name: "rejects_all_tables_with_non_table_scope",
+			op: blackstart.Operation{
+				Id:     "grant-validate-all-tables-scope",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("CONNECT"),
+					inputScope:      blackstart.NewInputFromValue("database"),
+					inputResource:   blackstart.NewInputFromValue("appdb"),
+					inputAll:        blackstart.NewInputFromValue(true),
+				},
+			},
+			wantErr: "only supported when scope is TABLE",
+		},
+		{
+			name: "rejects_all_tables_with_resource",
+			op: blackstart.Operation{
+				Id:     "grant-validate-all-tables-resource",
+				Module: "postgres_grant",
+				Inputs: map[string]blackstart.Input{
+					inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+					inputRole:       blackstart.NewInputFromValue("app_user"),
+					inputPermission: blackstart.NewInputFromValue("SELECT"),
+					inputScope:      blackstart.NewInputFromValue("table"),
+					inputSchema:     blackstart.NewInputFromValue("public"),
+					inputResource:   blackstart.NewInputFromValue("orders"),
+					inputAll:        blackstart.NewInputFromValue(true),
+				},
+			},
+			wantErr: "must be empty when all is true",
+		},
+		{
 			name: "rejects_comma_delimited_permission",
 			op: blackstart.Operation{
 				Id:     "grant-validate-comma",
@@ -451,6 +484,25 @@ func TestExpandGrantsFromContext_Combinations(t *testing.T) {
 			},
 		},
 		{
+			name: "table_scope_all_tables_multi_role_multi_permission",
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue([]string{"role_a", "role_b"}),
+				inputPermission: blackstart.NewInputFromValue([]string{"SELECT", "UPDATE"}),
+				inputScope:      blackstart.NewInputFromValue("table"),
+				inputSchema:     blackstart.NewInputFromValue([]string{"a", "b"}),
+				inputAll:        blackstart.NewInputFromValue(true),
+			},
+			wantLen: 8,
+			validate: func(t *testing.T, grants []*grant) {
+				for _, g := range grants {
+					require.Equal(t, "TABLE", g.Scope)
+					require.True(t, g.AllTables)
+					require.NotEmpty(t, g.Schema)
+					require.Empty(t, g.Resource)
+				}
+			},
+		},
+		{
 			name: "table_scope_multi_schema_resource_cartesian",
 			inputs: map[string]blackstart.Input{
 				inputRole:       blackstart.NewInputFromValue("role_a"),
@@ -569,6 +621,26 @@ func TestGrantQueries_AllScopes_Render(t *testing.T) {
 			},
 			setContains:    []string{"GRANT", "ON SCHEMA", "blackstart_render_schema"},
 			revokeContains: []string{"REVOKE", "ON SCHEMA", "blackstart_render_schema"},
+		},
+		{
+			name: "table_all_tables",
+			target: &grant{
+				Role:       "blackstart_render_all_tables_role",
+				Permission: "SELECT",
+				Schema:     "blackstart_render_all_tables_schema",
+				Scope:      "TABLE",
+				AllTables:  true,
+			},
+			setupSQL: []string{
+				`DROP ROLE IF EXISTS "blackstart_render_all_tables_role";`,
+				`CREATE ROLE "blackstart_render_all_tables_role";`,
+				`DROP SCHEMA IF EXISTS "blackstart_render_all_tables_schema" CASCADE;`,
+				`CREATE SCHEMA "blackstart_render_all_tables_schema";`,
+				`CREATE TABLE "blackstart_render_all_tables_schema"."orders" (id INT);`,
+				`CREATE TABLE "blackstart_render_all_tables_schema"."invoices" (id INT);`,
+			},
+			setContains:    []string{"GRANT", "ON ALL TABLES IN SCHEMA", `"blackstart_render_all_tables_schema"`},
+			revokeContains: []string{"REVOKE", "ON ALL TABLES IN SCHEMA", `"blackstart_render_all_tables_schema"`},
 		},
 		{
 			name: "table",

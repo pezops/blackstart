@@ -22,20 +22,38 @@ expands all possible combinations of the Operation and applies them all.
 
 ## Inputs
 
-| Id         | Description                                                                                                                         | Type             | Required |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------- |
-| connection | database connection to the managed Postgres instance.                                                                               | \*sql.DB         | true     |
-| permission | Permission(s) or role membership(s) to be assigned to the role(s). Depending on the resource scope, the valid permissions may vary. | string, []string | true     |
-| resource   | Resource(s) where the permission(s) are to be applied. This might be a database name, table name, or schema name.                   | string, []string | false    |
-| role       | Role(s) or username(s) that will have the grant assigned.                                                                           | string, []string | true     |
-| schema     | Schema(s) where the permission is to be applied.                                                                                    | string, []string | false    |
-| scope      | Scope of the resource where the permission is to be applied. This might be a database, table, or schema.                            | string           | false    |
+| Id         | Description                                                                                                                                     | Type             | Required |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------- |
+| all        | Apply permissions to all resources of the scope (if supported) in the schema. When set, the resource input must be empty.<br>Default: **false** | bool             | false    |
+| connection | database connection to the managed Postgres instance.                                                                                           | \*sql.DB         | true     |
+| permission | Permission(s) or role membership(s) to be assigned to the role(s). Depending on the resource scope, the valid permissions may vary.             | string, []string | true     |
+| resource   | Resource(s) where the permission(s) are to be applied. This might be a database name, table name, or schema name.                               | string, []string | false    |
+| role       | Role(s) or username(s) that will have the grant assigned.                                                                                       | string, []string | true     |
+| schema     | Schema(s) where the permission is to be applied.                                                                                                | string, []string | false    |
+| scope      | Scope of the resource where the permission is to be applied. This might be a database, table, or schema.                                        | string           | false    |
 
 ## Outputs
 
 No outputs are supported for this module
 
 ## Examples
+
+### Grant SELECT on all tables in a schema
+
+```yaml
+id: grant-select-all-tables-in-public
+module: postgres_grant
+inputs:
+  connection:
+    fromDependency:
+      id: manage-instance
+      output: connection
+  role: reporting_user
+  permission: SELECT
+  scope: TABLE
+  schema: public
+  all: true
+```
 
 ### Grant across multiple resources
 
