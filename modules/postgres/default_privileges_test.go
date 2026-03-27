@@ -317,6 +317,25 @@ func TestDefaultPrivilegesModule_ValidateRejectsGrantOptionInRevokeMode(t *testi
 	require.Contains(t, err.Error(), "not valid when doesNotExist is true")
 }
 
+func TestDefaultPrivilegesModule_Validate_AllowsDependencyInputs(t *testing.T) {
+	m := newDefaultPrivilegesModule()
+	op := blackstart.Operation{
+		Id:     "default-priv-dependency-inputs",
+		Module: defaultPrivilegesModuleID,
+		Inputs: map[string]blackstart.Input{
+			inputConnection:      blackstart.NewInputFromDep("conn-op", "connection"),
+			inputRole:            blackstart.NewInputFromDep("role-op", "role"),
+			inputPermission:      blackstart.NewInputFromDep("perm-op", "permission"),
+			inputScope:           blackstart.NewInputFromDep("scope-op", "scope"),
+			inputForRole:         blackstart.NewInputFromDep("owner-op", "for_role"),
+			inputSchema:          blackstart.NewInputFromDep("schema-op", "schema"),
+			inputWithGrantOption: blackstart.NewInputFromDep("grant-opt-op", "with_grant_option"),
+			inputRevokeMode:      blackstart.NewInputFromDep("revoke-mode-op", "revoke_mode"),
+		},
+	}
+	require.NoError(t, m.Validate(op))
+}
+
 func TestDefaultPrivilegesModule_ValidateScopeRules(t *testing.T) {
 	m := newDefaultPrivilegesModule()
 
