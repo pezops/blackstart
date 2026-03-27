@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🚀 Features
+
+- Add support for Postgres grant management on `ALL TABLES` in a schema (#52) by @mbrancato
+
 ## [0.1.6] - 2026-03-26
 
 ### 🐛 Bug Fixes
