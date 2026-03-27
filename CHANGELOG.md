@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🚀 Features
+
+- Add Postgres default ACL management for advanced objects (#57) by @mbrancato
+
 ## [0.1.7] - 2026-03-27
 
 ### 🚀 Features
