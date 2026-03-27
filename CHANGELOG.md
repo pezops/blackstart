@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Check for duplicate operation IDs in workflows (#59) by @mbrancato
+
 ## [0.1.9] - 2026-03-27
 
 ### 🐛 Bug Fixes
