@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Fix static input validation on Postgres default privileges (#58) by @mbrancato
+
 ## [0.1.8] - 2026-03-27
 
 ### 🚀 Features
