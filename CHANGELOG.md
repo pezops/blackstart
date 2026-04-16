@@ -6,6 +6,10 @@
 
 - Check for duplicate operation IDs in workflows (#59) by @mbrancato
 
+### 💼 Other
+
+- Sanitize logs with Google API Errors when wrapped (#61) by @mbrancato
+
 ## [0.1.9] - 2026-03-27
 
 ### 🐛 Bug Fixes
