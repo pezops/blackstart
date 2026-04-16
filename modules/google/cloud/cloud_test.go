@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 )
 
 func testCredentialsTypeFromJSON(t *testing.T, credJSON string) google.CredentialsType {
@@ -194,4 +195,49 @@ func TestIamUser_EmptyJSONFallsBackToTokenInspection(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, "wi-principal@example.com", got)
+}
+
+func TestSanitizeGoogleAPIError_UsesErrorDescriptionFromBody(t *testing.T) {
+	err := sanitizeGoogleAPIError(
+		"token info",
+		&googleapi.Error{
+			Code:    400,
+			Message: "Bad Request",
+			Body:    `{"error_description":"Invalid Value"}`,
+		},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Invalid Value")
+	require.NotContains(t, err.Error(), "access_token=")
+	require.NotContains(t, err.Error(), "https://")
+}
+
+func TestSanitizeGoogleAPIError_GenericFallbackDoesNotExposeWrappedError(t *testing.T) {
+	err := sanitizeGoogleAPIError(
+		"id token",
+		errors.New(`Post "https://www.googleapis.com/oauth2/v2/tokeninfo?access_token=secret-token&foo=bar": context deadline exceeded`),
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown error while calling id token endpoint")
+	require.NotContains(t, err.Error(), "secret-token")
+	require.NotContains(t, err.Error(), "https://www.googleapis.com/oauth2/v2/tokeninfo")
+
+	err = sanitizeGoogleAPIError(
+		"id token",
+		errors.New(`Get "https://oauth2.googleapis.com/tokeninfo?id_token=secret-id-token": unauthorized`),
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown error while calling id token endpoint")
+	require.NotContains(t, err.Error(), "secret-id-token")
+	require.NotContains(t, err.Error(), "https://oauth2.googleapis.com/tokeninfo")
+}
+
+func TestExtractGoogleAPIErrorDescription_OptionalFields(t *testing.T) {
+	require.Equal(t, "", extractGoogleAPIErrorDescription(`{}`))
+	require.Equal(t, "", extractGoogleAPIErrorDescription(`{"foo":"bar"}`))
+	require.Equal(
+		t,
+		"nested-invalid",
+		extractGoogleAPIErrorDescription(`{"error":{"error_description":"nested-invalid"}}`),
+	)
 }

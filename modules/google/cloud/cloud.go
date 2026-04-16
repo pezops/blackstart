@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	googleoauth2 "google.golang.org/api/oauth2/v2"
 )
 
@@ -25,10 +27,60 @@ func tokenInfoEmail(ctx context.Context, creds *google.Credentials) (string, err
 	tokenInfoCall := oauth2Service.Tokeninfo().AccessToken(token.AccessToken)
 	tokenInfo, err := tokenInfoCall.Do()
 	if err != nil {
-		return "", err
+		return "", sanitizeGoogleAPIError("tokeninfo", err)
 	}
 
 	return tokenInfo.Email, nil
+}
+
+// sanitizeGoogleAPIError removes any potentially sensitive token material from Google API errors
+// returned by Google API calls. Some return request information with sensitive data like tokens
+// when using error wrapping.
+func sanitizeGoogleAPIError(apiName string, err error) error {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		if desc := extractGoogleAPIErrorDescription(apiErr.Body); desc != "" {
+			return fmt.Errorf("%s request failed: %s", apiName, desc)
+		}
+		if apiErr.Code > 0 {
+			return fmt.Errorf("%s request failed with status %d", apiName, apiErr.Code)
+		}
+		return fmt.Errorf("%s request failed", apiName)
+	}
+	return fmt.Errorf("unknown error while calling %s endpoint", apiName)
+}
+
+// extractGoogleAPIErrorDescription parses a Google API error body and returns a safe human
+// readable description when available.
+func extractGoogleAPIErrorDescription(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	var payload struct {
+		ErrorDescription string `json:"error_description"`
+		Error            any    `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(payload.ErrorDescription) != "" {
+		return strings.TrimSpace(payload.ErrorDescription)
+	}
+	switch e := payload.Error.(type) {
+	case string:
+		return strings.TrimSpace(e)
+	case map[string]any:
+		if desc, ok := e["error_description"].(string); ok {
+			return strings.TrimSpace(desc)
+		}
+		if msg, ok := e["message"].(string); ok {
+			return strings.TrimSpace(msg)
+		}
+		if status, ok := e["status"].(string); ok {
+			return strings.TrimSpace(status)
+		}
+	}
+	return ""
 }
 
 // DefaultCredentials returns the default Google Cloud credentials. It supports ADC (Application
