@@ -1,4 +1,4 @@
-# CloudSQL
+# Cloud SQL
 
 ## Modules
 
