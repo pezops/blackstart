@@ -112,7 +112,7 @@ type grant struct {
 	// permissions may vary. For role membership, where one role is being granted to another,
 	// this is only valid for the instance grant scope.
 	Permission string
-	// Schema is the name of a Postgres schema where the Permission is to be applied. Defaults to
+	// Schema is the name of a PostgreSQL database schema where the Permission is to be applied. Defaults to
 	// the "public" schema.
 	Schema string
 	// Resource is the name of the database object for the Permission to be applied. This might be a database
@@ -567,7 +567,7 @@ func (g *grantModule) Info() blackstart.ModuleInfo {
 		Name: "PostgreSQL grant",
 		Description: util.CleanString(
 			`
-Ensures that Postgres roles have the specified permissions on resources. The scope specifies the 
+Ensures that PostgreSQL roles have the specified permissions on resources. The scope specifies the 
 type of resources where the permissions will be applied.
 
 If multiple values are provided for '''role''', '''permission''', '''schema''', or '''resource''', 
@@ -578,17 +578,17 @@ for details on valid permissions for each scope.
 `,
 		),
 		Requirements: []string{
-			"A valid Postgres `connection` input must be provided.",
+			"A valid PostgreSQL `connection` input must be provided.",
 			"The database user of the `connection` must have sufficient privileges to apply the requested grants.",
 			"Target roles/users and target resources must exist for the selected `scope`.",
 			"For `TABLE` and `SEQUENCE` scopes, both schema and resource must exist and be addressable by the user.",
 			"For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, `schema` must be provided and `resource` must be a routine signature that includes argument types unless `all` is true.",
 			"`LARGE_OBJECT` scope requires `resource` to be a numeric large object OID (`loid`).",
-			"`PARAMETER` scope requires a Postgres version that supports parameter privileges (`GRANT ... ON PARAMETER ...`) and `has_parameter_privilege`.",
+			"`PARAMETER` scope requires a PostgreSQL version that supports parameter privileges (`GRANT ... ON PARAMETER ...`) and `has_parameter_privilege`.",
 		},
 		Inputs: map[string]blackstart.InputValue{
 			inputConnection: {
-				Description: "database connection to the managed Postgres instance.",
+				Description: "database connection to the managed PostgreSQL instance.",
 				Type:        reflect.TypeFor[*sql.DB](),
 				Required:    true,
 			},

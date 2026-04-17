@@ -8,7 +8,7 @@ Connection to a PostgreSQL database.
 
 ## Requirements
 
-- The Postgres server must be reachable from the Blackstart runtime.
+- The PostgreSQL server must be reachable from the Blackstart runtime.
 
 - The provided credentials must be valid for the target database.
 

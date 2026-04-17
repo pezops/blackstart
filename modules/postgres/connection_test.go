@@ -43,7 +43,7 @@ func TestConnectionCheckCreatesTarget(t *testing.T) {
 	op := &blackstart.Operation{
 		Id:     "test",
 		Module: "postgres_connection",
-		Name:   "Test Postgres connection",
+		Name:   "Test PostgreSQL connection",
 		Inputs: map[string]blackstart.Input{
 			inputHost:     blackstart.NewInputFromValue("localhost"),
 			inputUsername: blackstart.NewInputFromValue("user"),
@@ -111,7 +111,7 @@ func TestConnectionSet(t *testing.T) {
 	op := &blackstart.Operation{
 		Id:     "test",
 		Module: "postgres_connection",
-		Name:   "Test Postgres connection",
+		Name:   "Test PostgreSQL connection",
 		Inputs: map[string]blackstart.Input{
 			inputHost:     blackstart.NewInputFromValue(pgHost),
 			inputPort:     blackstart.NewInputFromValue(pgPort),

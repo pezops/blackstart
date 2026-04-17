@@ -93,6 +93,7 @@ func generateDocs() {
 	pathNames := make(map[string]string, len(rawPathNames))
 	for k, v := range rawPathNames {
 		pathNames[normalizePathNameKey(k)] = v
+		pathNames[normalizePathNameKey(v)] = v
 	}
 
 	baseDocsDir := "docs/user-guide/modules"
