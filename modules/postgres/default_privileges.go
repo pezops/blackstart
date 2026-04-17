@@ -104,14 +104,14 @@ var defaultPrivilegeScopeSpecs = map[defaultPrivilegeScope]defaultPrivilegeScope
 }
 
 type defaultPrivilegeTarget struct {
-	Scope           defaultPrivilegeScope
-	OwnerRole       string
-	Schema          string
-	Grantee         string
-	Permission      string
+	Scope            defaultPrivilegeScope
+	OwnerRole        string
+	Schema           string
+	Grantee          string
+	Permission       string
 	CheckPermissions []string
-	WithGrantOption bool
-	RevokeMode      string
+	WithGrantOption  bool
+	RevokeMode       string
 }
 
 type defaultPrivilegesModule struct {
@@ -145,7 +145,7 @@ When operation '''doesNotExist=false''', this module applies default privilege g
 `,
 		),
 		Requirements: []string{
-			"A valid Postgres `connection` input must be provided.",
+			"A valid PostgreSQL `connection` input must be provided.",
 			"The database user in `connection` must have permission to execute `ALTER DEFAULT PRIVILEGES` for the configured owner role context (`FOR ROLE`).",
 			"Target roles/users in `role` should exist before applying grants or revokes.",
 		},
@@ -472,14 +472,14 @@ func (m *defaultPrivilegesModule) expandTargets(mctx blackstart.ModuleContext) (
 					}
 					targets = append(
 						targets, defaultPrivilegeTarget{
-							Scope:           scope,
-							OwnerRole:       ownerRole,
-							Schema:          schema,
-							Grantee:         grantee,
-							Permission:      permission,
+							Scope:            scope,
+							OwnerRole:        ownerRole,
+							Schema:           schema,
+							Grantee:          grantee,
+							Permission:       permission,
 							CheckPermissions: checkPermissions,
-							WithGrantOption: withGrantOption,
-							RevokeMode:      revokeMode,
+							WithGrantOption:  withGrantOption,
+							RevokeMode:       revokeMode,
 						},
 					)
 				}
@@ -641,7 +641,9 @@ func (m *defaultPrivilegesModule) Validate(op blackstart.Operation) error {
 			return fmt.Errorf("parameter %s is invalid: %w", inputPermission, err)
 		}
 		for _, permission := range permissions {
-			if err := validateDefaultPrivilegePermission(scope, normalizeDefaultPrivilegePermissionToken(permission)); err != nil {
+			if err := validateDefaultPrivilegePermission(
+				scope, normalizeDefaultPrivilegePermissionToken(permission),
+			); err != nil {
 				return fmt.Errorf("parameter %s is invalid: %w", inputPermission, err)
 			}
 		}

@@ -49,7 +49,7 @@ func (c *connectionModule) Info() blackstart.ModuleInfo {
 		Name:        "PostgreSQL connection",
 		Description: "Connection to a PostgreSQL database.",
 		Requirements: []string{
-			"The Postgres server must be reachable from the Blackstart runtime.",
+			"The PostgreSQL server must be reachable from the Blackstart runtime.",
 			"The provided credentials must be valid for the target database.",
 			"The provided user must have permission to connect to the target database.",
 			"TLS and `sslmode` settings must match the server configuration.",

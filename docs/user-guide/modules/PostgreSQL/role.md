@@ -8,7 +8,7 @@ Module to manage PostgreSQL Roles.
 
 ## Requirements
 
-- A valid Postgres `connection` input must be provided.
+- A valid PostgreSQL `connection` input must be provided.
 
 - The executing database user must be a member of a role with `CREATEROLE`.
 

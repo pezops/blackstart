@@ -9,7 +9,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	log.Println("Starting Postgres module tests...")
+	log.Println("Starting PostgreSQL module tests...")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
 
