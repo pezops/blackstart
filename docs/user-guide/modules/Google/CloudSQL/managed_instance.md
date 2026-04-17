@@ -15,6 +15,12 @@ for further operations.
   created and deleted as needed.
 - When the module is set to not exist, the current workload identity is removed from the
   `cloudsqlsuperuser` role, but the user itself is not deleted.
+- In Cloud SQL for PostgreSQL, `cloudsqlsuperuser` is not a true PostgreSQL superuser. For grants on
+  database objects (for example tables), the managing role may still need `WITH GRANT OPTION`. A
+  simple approach is to grant the Blackstart service account role membership in the owner role of
+  the target object. Otherwise, the Blackstart service account will need to be granted the same
+  permission `WITH GRANT OPTION` on the target object to be able to manage permissions for other
+  users.
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not
   supported by this module.
 

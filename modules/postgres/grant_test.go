@@ -2,6 +2,10 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"net/url"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -207,19 +211,51 @@ func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := m.Validate(tt.op)
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-			require.Contains(t, err.Error(), tt.wantErr)
-		})
+		t.Run(
+			tt.name, func(t *testing.T) {
+				err := m.Validate(tt.op)
+				if tt.wantErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+			},
+		)
 	}
 }
 
 type fakeConn struct{}
+
+func openTestDBAsRole(
+	ctx context.Context,
+	t *testing.T,
+	dbName string,
+	username string,
+	password string,
+) (*sql.DB, func()) {
+	t.Helper()
+	dsn, err := testPg.ConnectionString(ctx)
+	require.NoError(t, err)
+
+	dsnURL, err := url.Parse(dsn)
+	require.NoError(t, err)
+	dsnURL.User = url.UserPassword(username, password)
+	dsnURL.Path = "/" + dbName
+	query := dsnURL.Query()
+	query.Set("sslmode", "disable")
+	dsnURL.RawQuery = query.Encode()
+
+	db, err := sql.Open("postgres", dsnURL.String())
+	require.NoError(t, err)
+	require.NoError(t, db.PingContext(ctx))
+
+	closeDB := func() {
+		err := db.Close()
+		require.NoError(t, err)
+	}
+	return db, closeDB
+}
 
 func TestGrant(t *testing.T) {
 	var err error
@@ -498,6 +534,84 @@ func TestGrant(t *testing.T) {
 
 }
 
+func TestGrant_WithOwnerRoleMembership(t *testing.T) {
+	ctx := context.Background()
+	adminDB, closeAdmin := createTestInstance(ctx, t)
+	defer closeAdmin()
+
+	const (
+		dbName        = "blackstart_grant_repro_db"
+		ownerRole     = "blackstart_owner_role_case"
+		grantorRole   = "blackstart_grantor_role_case"
+		targetRole    = "blackstart_target_role_case"
+		ownerPassword = "owner_password_case"
+		grantorPass   = "grantor_password_case"
+		targetPass    = "target_password_case"
+		tableName     = "blackstart_grant_repro_table"
+	)
+
+	setupSQL := []string{
+		fmt.Sprintf(
+			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();`,
+			dbName,
+		),
+		fmt.Sprintf(`DROP DATABASE IF EXISTS "%s";`, dbName),
+		fmt.Sprintf(`DROP ROLE IF EXISTS "%s";`, targetRole),
+		fmt.Sprintf(`DROP ROLE IF EXISTS "%s";`, grantorRole),
+		fmt.Sprintf(`DROP ROLE IF EXISTS "%s";`, ownerRole),
+		fmt.Sprintf(`CREATE ROLE "%s" LOGIN PASSWORD '%s';`, ownerRole, ownerPassword),
+		fmt.Sprintf(`CREATE ROLE "%s" LOGIN PASSWORD '%s';`, grantorRole, grantorPass),
+		fmt.Sprintf(`CREATE ROLE "%s" LOGIN PASSWORD '%s';`, targetRole, targetPass),
+		fmt.Sprintf(`CREATE DATABASE "%s" OWNER "%s";`, dbName, ownerRole),
+	}
+	for _, stmt := range setupSQL {
+		_, err := adminDB.ExecContext(ctx, stmt)
+		require.NoError(t, err)
+	}
+
+	ownerDB, closeOwner := openTestDBAsRole(ctx, t, dbName, ownerRole, ownerPassword)
+	defer closeOwner()
+	_, err := ownerDB.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE public."%s" (id INT);`, tableName))
+	require.NoError(t, err)
+
+	grantorDB, closeGrantor := openTestDBAsRole(ctx, t, dbName, grantorRole, grantorPass)
+	defer closeGrantor()
+
+	g := grantModule{}
+	inputs := map[string]blackstart.Input{
+		inputConnection: blackstart.NewInputFromValue(grantorDB),
+		inputRole:       blackstart.NewInputFromValue(targetRole),
+		inputPermission: blackstart.NewInputFromValue("SELECT"),
+		inputScope:      blackstart.NewInputFromValue("TABLE"),
+		inputSchema:     blackstart.NewInputFromValue("public"),
+		inputResource:   blackstart.NewInputFromValue(tableName),
+	}
+	mctx := blackstart.InputsToContext(ctx, inputs)
+
+	// As non-owner/non-member, grant should fail with permission denied.
+	err = g.Set(mctx)
+	require.Error(t, err)
+	require.Contains(t, strings.ToLower(err.Error()), "permission denied")
+
+	// Grant membership in the table owner role, then retry.
+	_, err = adminDB.ExecContext(ctx, fmt.Sprintf(`GRANT "%s" TO "%s";`, ownerRole, grantorRole))
+	require.NoError(t, err)
+
+	err = g.Set(mctx)
+	require.NoError(t, err)
+
+	var hasSelect bool
+	err = grantorDB.QueryRowContext(
+		ctx,
+		`SELECT has_table_privilege($1, $2, $3);`,
+		targetRole,
+		fmt.Sprintf("public.%s", tableName),
+		"SELECT",
+	).Scan(&hasSelect)
+	require.NoError(t, err)
+	require.True(t, hasSelect)
+}
+
 func TestGrant_WithGrantOptionLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db, teardownPgInstance := createTestInstance(ctx, t)
@@ -586,38 +700,40 @@ func TestGrant_WithGrantOptionLifecycle(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for _, stmt := range tt.setup {
-				_, err := db.ExecContext(ctx, stmt)
+		t.Run(
+			tt.name, func(t *testing.T) {
+				for _, stmt := range tt.setup {
+					_, err := db.ExecContext(ctx, stmt)
+					require.NoError(t, err)
+				}
+
+				g := grantModule{}
+				mctx := blackstart.InputsToContext(ctx, tt.inputs)
+
+				ok, err := g.Check(mctx)
 				require.NoError(t, err)
-			}
+				require.False(t, ok)
 
-			g := grantModule{}
-			mctx := blackstart.InputsToContext(ctx, tt.inputs)
+				err = g.Set(mctx)
+				require.NoError(t, err)
 
-			ok, err := g.Check(mctx)
-			require.NoError(t, err)
-			require.False(t, ok)
+				ok, err = g.Check(mctx)
+				require.NoError(t, err)
+				require.True(t, ok)
 
-			err = g.Set(mctx)
-			require.NoError(t, err)
+				revokeCtx := blackstart.InputsToContext(ctx, tt.inputs, blackstart.DoesNotExistFlag)
+				ok, err = g.Check(revokeCtx)
+				require.NoError(t, err)
+				require.False(t, ok)
 
-			ok, err = g.Check(mctx)
-			require.NoError(t, err)
-			require.True(t, ok)
+				err = g.Set(revokeCtx)
+				require.NoError(t, err)
 
-			revokeCtx := blackstart.InputsToContext(ctx, tt.inputs, blackstart.DoesNotExistFlag)
-			ok, err = g.Check(revokeCtx)
-			require.NoError(t, err)
-			require.False(t, ok)
-
-			err = g.Set(revokeCtx)
-			require.NoError(t, err)
-
-			ok, err = g.Check(revokeCtx)
-			require.NoError(t, err)
-			require.True(t, ok)
-		})
+				ok, err = g.Check(revokeCtx)
+				require.NoError(t, err)
+				require.True(t, ok)
+			},
+		)
 	}
 }
 
@@ -1227,70 +1343,78 @@ func TestGrantQueries_RevokeRejectsInvalidPermissions(t *testing.T) {
 }
 
 func TestGrantQueryRendering_QuotedIdentifierBoundaries(t *testing.T) {
-	t.Run("database_scope_keeps_permission_unquoted_and_identifiers_quoted", func(t *testing.T) {
-		target := &grant{
-			Role:       "iam-role@appomni-demo.iam",
-			Permission: "CONNECT",
-			Resource:   "app-db-prod",
-			Scope:      "DATABASE",
-		}
+	t.Run(
+		"database_scope_keeps_permission_unquoted_and_identifiers_quoted", func(t *testing.T) {
+			target := &grant{
+				Role:       "iam-role@appomni-demo.iam",
+				Permission: "CONNECT",
+				Resource:   "app-db-prod",
+				Scope:      "DATABASE",
+			}
 
-		query, _, err := getGrantSetQuery(target)
-		require.NoError(t, err)
-		require.Contains(t, query, `GRANT CONNECT ON DATABASE "app-db-prod" TO "iam-role@appomni-demo.iam";`)
-		require.NotContains(t, query, `"CONNECT"`)
-	})
+			query, _, err := getGrantSetQuery(target)
+			require.NoError(t, err)
+			require.Contains(t, query, `GRANT CONNECT ON DATABASE "app-db-prod" TO "iam-role@appomni-demo.iam";`)
+			require.NotContains(t, query, `"CONNECT"`)
+		},
+	)
 
-	t.Run("table_scope_keeps_permission_unquoted_and_identifiers_quoted", func(t *testing.T) {
-		target := &grant{
-			Role:       "iam-role@appomni-demo.iam",
-			Permission: "SELECT",
-			Schema:     "orders-api",
-			Resource:   "daily-rollup",
-			Scope:      "TABLE",
-		}
+	t.Run(
+		"table_scope_keeps_permission_unquoted_and_identifiers_quoted", func(t *testing.T) {
+			target := &grant{
+				Role:       "iam-role@appomni-demo.iam",
+				Permission: "SELECT",
+				Schema:     "orders-api",
+				Resource:   "daily-rollup",
+				Scope:      "TABLE",
+			}
 
-		query, _, err := getGrantSetQuery(target)
-		require.NoError(t, err)
-		require.Contains(
-			t,
-			query,
-			`GRANT SELECT ON TABLE "orders-api"."daily-rollup" TO "iam-role@appomni-demo.iam";`,
-		)
-		require.NotContains(t, query, `"SELECT"`)
-	})
+			query, _, err := getGrantSetQuery(target)
+			require.NoError(t, err)
+			require.Contains(
+				t,
+				query,
+				`GRANT SELECT ON TABLE "orders-api"."daily-rollup" TO "iam-role@appomni-demo.iam";`,
+			)
+			require.NotContains(t, query, `"SELECT"`)
+		},
+	)
 
-	t.Run("table_scope_with_grant_option_appends_clause", func(t *testing.T) {
-		target := &grant{
-			Role:            "iam-role@appomni-demo.iam",
-			Permission:      "SELECT",
-			Schema:          "orders-api",
-			Resource:        "daily-rollup",
-			Scope:           "TABLE",
-			WithGrantOption: true,
-		}
+	t.Run(
+		"table_scope_with_grant_option_appends_clause", func(t *testing.T) {
+			target := &grant{
+				Role:            "iam-role@appomni-demo.iam",
+				Permission:      "SELECT",
+				Schema:          "orders-api",
+				Resource:        "daily-rollup",
+				Scope:           "TABLE",
+				WithGrantOption: true,
+			}
 
-		query, _, err := getGrantSetQuery(target)
-		require.NoError(t, err)
-		require.Contains(
-			t,
-			query,
-			`GRANT SELECT ON TABLE "orders-api"."daily-rollup" TO "iam-role@appomni-demo.iam" WITH GRANT OPTION;`,
-		)
-	})
+			query, _, err := getGrantSetQuery(target)
+			require.NoError(t, err)
+			require.Contains(
+				t,
+				query,
+				`GRANT SELECT ON TABLE "orders-api"."daily-rollup" TO "iam-role@appomni-demo.iam" WITH GRANT OPTION;`,
+			)
+		},
+	)
 
-	t.Run("non_instance_scope_rejects_identifier_like_permission", func(t *testing.T) {
-		target := &grant{
-			Role:       "iam-role@appomni-demo.iam",
-			Permission: "pg-read-role@appomni-demo.iam",
-			Resource:   "app-db-prod",
-			Scope:      "DATABASE",
-		}
+	t.Run(
+		"non_instance_scope_rejects_identifier_like_permission", func(t *testing.T) {
+			target := &grant{
+				Role:       "iam-role@appomni-demo.iam",
+				Permission: "pg-read-role@appomni-demo.iam",
+				Resource:   "app-db-prod",
+				Scope:      "DATABASE",
+			}
 
-		_, _, err := getGrantSetQuery(target)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid")
-	})
+			_, _, err := getGrantSetQuery(target)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "invalid")
+		},
+	)
 }
 
 func TestGrantQueries_NewScopes_RenderOnly(t *testing.T) {
@@ -1391,22 +1515,24 @@ func TestGrantQueries_NewScopes_RenderOnly(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			setQuery, _, err := getGrantSetQuery(tt.target)
-			require.NoError(t, err)
-			for _, c := range tt.setContains {
-				require.Contains(t, setQuery, c)
-			}
+		t.Run(
+			tt.name, func(t *testing.T) {
+				setQuery, _, err := getGrantSetQuery(tt.target)
+				require.NoError(t, err)
+				for _, c := range tt.setContains {
+					require.Contains(t, setQuery, c)
+				}
 
-			revokeQuery, _, err := getGrantRevokeQuery(tt.target)
-			require.NoError(t, err)
-			for _, c := range tt.revokeContains {
-				require.Contains(t, revokeQuery, c)
-			}
+				revokeQuery, _, err := getGrantRevokeQuery(tt.target)
+				require.NoError(t, err)
+				for _, c := range tt.revokeContains {
+					require.Contains(t, revokeQuery, c)
+				}
 
-			_, existsParams, err := getGrantExistsQuery(tt.target)
-			require.NoError(t, err)
-			require.NotEmpty(t, existsParams)
-		})
+				_, existsParams, err := getGrantExistsQuery(tt.target)
+				require.NoError(t, err)
+				require.NotEmpty(t, existsParams)
+			},
+		)
 	}
 }
