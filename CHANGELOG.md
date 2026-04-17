@@ -14,6 +14,7 @@
 
 - Add Cloud SQL grant limitation docs for `cloudsqlsuperuser` (#62) by @mbrancato
 - Normalize Cloud SQL naming to match official documentation (#63) by @mbrancato
+- Normalize PostgreSQL naming to match official documentation (#64) by @mbrancato
 
 ## [0.1.9] - 2026-03-27
 
