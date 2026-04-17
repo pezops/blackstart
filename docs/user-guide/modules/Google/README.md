@@ -1,4 +1,4 @@
 # Google
 
 - [Cloud](./Cloud/)
-- [Cloud Sql](./Cloud SQL/)
+- [Cloud SQL](./Cloud SQL/)

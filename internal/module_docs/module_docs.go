@@ -79,10 +79,21 @@ func main() {
 	generateDocs()
 }
 
+// normalizePathNameKey canonicalizes path keys so friendly-name lookups work
+// across values like "cloudsql", "Cloud SQL", "cloud_sql", and "cloud-sql".
+func normalizePathNameKey(value string) string {
+	replacer := strings.NewReplacer(" ", "", "_", "", "-", "")
+	return strings.ToLower(replacer.Replace(value))
+}
+
 func generateDocs() {
 	caser := cases.Title(language.English)
 	modules := blackstart.GetRegisteredModules()
-	pathNames := blackstart.GetRegisteredPathNames()
+	rawPathNames := blackstart.GetRegisteredPathNames()
+	pathNames := make(map[string]string, len(rawPathNames))
+	for k, v := range rawPathNames {
+		pathNames[normalizePathNameKey(k)] = v
+	}
 
 	baseDocsDir := "docs/user-guide/modules"
 	modulesDir := "modules"
@@ -118,7 +129,7 @@ func generateDocs() {
 		// Replace path parts with friendly names if they exist
 		pathParts := strings.Split(docPath, string(filepath.Separator))
 		for i, part := range pathParts {
-			if friendlyName, ok := pathNames[part]; ok {
+			if friendlyName, ok := pathNames[normalizePathNameKey(part)]; ok {
 				pathParts[i] = friendlyName
 			} else {
 				pathParts[i] = caser.String(part)
@@ -218,7 +229,7 @@ func createReadme(
 	title := "Modules"
 	if relDir != "." {
 		pathPart := filepath.Base(relDir)
-		if friendlyName, ok := pathNames[strings.ToLower(pathPart)]; ok {
+		if friendlyName, ok := pathNames[normalizePathNameKey(pathPart)]; ok {
 			title = friendlyName
 		} else {
 			title = cases.Title(language.English).String(pathPart)
@@ -276,7 +287,7 @@ func createReadme(
 			if _, err = os.Stat(filepath.Join(subDirPath, "README.md")); err == nil {
 				caser := cases.Title(language.English)
 				title = caser.String(subDir)
-				if friendlyName, ok := pathNames[strings.ToLower(subDir)]; ok {
+				if friendlyName, ok := pathNames[normalizePathNameKey(subDir)]; ok {
 					title = friendlyName
 				}
 				link := fmt.Sprintf("- [%s](./%s/)\n", title, subDir)
