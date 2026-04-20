@@ -5,6 +5,7 @@
 ### 🐛 Bug Fixes
 
 - Check for duplicate operation IDs in workflows (#59) by @mbrancato
+- Add Closer interface for Modules to cleanup resources after workflow run (#65) by @mbrancato
 
 ### 💼 Other
 
