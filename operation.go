@@ -65,13 +65,19 @@ func (o *Operation) setup() error {
 func (o *Operation) execute(mctx ModuleContext, logger *slog.Logger) error {
 	var m Module
 	var err error
-	var check bool
 
 	logger.Debug("instantiating module for operation", "module", o.Module, "id", o.Id)
 	m, err = NewModule(o)
 	if err != nil {
 		return err
 	}
+
+	return o.executeWithModule(m, mctx, logger)
+}
+
+func (o *Operation) executeWithModule(m Module, mctx ModuleContext, logger *slog.Logger) error {
+	var err error
+	var check bool
 
 	logger.Info("operation check", "module", o.Module, "id", o.Id)
 	check, err = m.Check(mctx)
