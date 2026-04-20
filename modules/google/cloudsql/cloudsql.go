@@ -22,19 +22,19 @@ import (
 const (
 	modulePackage = "google.cloudsql"
 
-	// sqlDriverPostgresIam is the driver name for connecting to CloudSQL Postgres instances
+	// sqlDriverPostgresIam is the driver name for connecting to Cloud SQL for PostgreSQL instances
 	// using IAM credentials.
 	sqlDriverPostgresIam = "cloudsql-postgres-iam"
 
-	// sqlDriverPostgresIamPrivateIp is the driver name for connecting to CloudSQL Postgres instances
+	// sqlDriverPostgresIamPrivateIp is the driver name for connecting to Cloud SQL for PostgreSQL instances
 	// using IAM credentials connecting via a VPC and private IP address.
 	sqlDriverPostgresIamPrivateIp = "cloudsql-postgres-iam-private"
 
-	// sqlDriverPostgres is the driver name for connecting to CloudSQL Postgres instances using
+	// sqlDriverPostgres is the driver name for connecting to Cloud SQL for PostgreSQL instances using
 	// built-in / static credentials.
 	sqlDriverPostgres = "cloudsql-postgres"
 
-	// sqlDriverPostgresPrivateIp is the driver name for connecting to CloudSQL Postgres instances using
+	// sqlDriverPostgresPrivateIp is the driver name for connecting to Cloud SQL for PostgreSQL instances using
 	// built-in / static credentials connecting via a VPC and private IP address.
 	sqlDriverPostgresPrivateIp = "cloudsql-postgres-private"
 
@@ -62,11 +62,11 @@ const (
 )
 
 func init() {
-	blackstart.RegisterPathName("cloudsql", "CloudSQL")
+	blackstart.RegisterPathName("cloudsql", "Cloud SQL")
 
 	// Register global drivers that can be used by the database/sql package with the new package
-	// to connect to CloudSQL, cloud.google.com/go/cloudsqlconn. This has a postgres subpackage
-	// that is used to connect to CloudSQL Postgres instances without the need for the CloudSQL
+	// to connect to Cloud SQL, cloud.google.com/go/cloudsqlconn. This has a postgres subpackage
+	// that is used to connect to Cloud SQL for PostgreSQL instances without the need for the Cloud SQL
 	// proxy.
 	//
 	// To leverage a credentials file, a driver per credential is needed tht specifies the file
@@ -100,37 +100,37 @@ var cloudSQLServiceAccountIdentityPattern = regexp.MustCompile(
 	`^[^@\s]+@[^@\s]+\.iam(?:\.gserviceaccount\.com)?$`,
 )
 
-// connectionConfig is the configuration for a connection to a CloudSQL instance. It provides some
-// convenience methods for working with the CloudSQL instance.
+// connectionConfig is the configuration for a connection to a Cloud SQL instance. It provides some
+// convenience methods for working with the Cloud SQL instance.
 type connectionConfig struct {
-	// instance is the name of the CloudSQL instance.
+	// instance is the name of the Cloud SQL instance.
 	instance string
 
-	// database is the name of the database to connect to on the CloudSQL instance.
+	// database is the name of the database to connect to on the Cloud SQL instance.
 	database string
 
 	// project is the Google Cloud project ID. This value will attempt to be determined from the
 	// credentials if not provided.
 	project string
 
-	// region is the region where the CloudSQL instance is located. If not provided, the region
+	// region is the region where the Cloud SQL instance is located. If not provided, the region
 	// will attempt to be determined using the sqladmin API.
 	region string
 
-	// user is the username to connect to the CloudSQL instance. When using a service account
+	// user is the username to connect to the Cloud SQL instance. When using a service account
 	// ending in `iam.gserviceaccount.com`, the username must be truncated after the `.iam` to
 	// match the IAM user.
 	user string
 
-	// password is the password to connect to the CloudSQL instance. This value is only used when
+	// password is the password to connect to the Cloud SQL instance. This value is only used when
 	// the user type is `BUILT_IN` and it is not supported except for internal use cases.
 	password string
 
-	// userType is the type of user to connect to the CloudSQL instance. The user type must be one
+	// userType is the type of user to connect to the Cloud SQL instance. The user type must be one
 	// of the values in the `cloudsql.User_SqlUserType_name` map.
 	userType string
 
-	// identifier is the CloudSQL instance's connection identifier in teh format
+	// identifier is the Cloud SQL instance's connection identifier in teh format
 	// `project:region:instance`. This value is only used internally and should not be set
 	// manually.
 	identifier string
@@ -140,7 +140,7 @@ type connectionConfig struct {
 	creds *google.Credentials
 }
 
-// connectionIdentifier returns the connection identifier for the CloudSQL instance. The connection
+// connectionIdentifier returns the connection identifier for the Cloud SQL instance. The connection
 // identifier is in the format `project:region:instance`.
 func (t *connectionConfig) connectionIdentifier(ctx context.Context) (string, error) {
 	if t.identifier != "" {
@@ -216,11 +216,11 @@ func (t *connectionConfig) connectionIdentifier(ctx context.Context) (string, er
 	return identifier, nil
 }
 
-// listCloudSQLInstances lists CloudSQL instances for a given project ID using the provided credentials.
+// listCloudSQLInstances lists Cloud SQL instances for a given project ID using the provided credentials.
 func listCloudSQLInstances(
 	ctx context.Context, creds *google.Credentials, projectID string,
 ) ([]*sqladmin.DatabaseInstance, error) {
-	// Initialize the CloudSQL Admin service
+	// Initialize the Cloud SQL Admin service
 	sqlService, err := sqladmin.NewService(
 		ctx, option.WithCredentials(creds), option.WithUserAgent(blackstart.UserAgent),
 	)
@@ -238,7 +238,7 @@ func listCloudSQLInstances(
 }
 
 // postgresAdcIamUser returns the IAM user for the current ADC or workload identity in the format
-// expected by CloudSQL Postgres.
+// expected by Cloud SQL for PostgreSQL.
 func postgresAdcIamUser(ctx context.Context) (string, error) {
 	u, err := cloud.AdcIamUser(ctx)
 	if err != nil {
@@ -248,8 +248,8 @@ func postgresAdcIamUser(ctx context.Context) (string, error) {
 	return u, nil
 }
 
-// postgresIamUser returns the IAM user for the given credentials in the format expected by CloudSQL
-// Postgres.
+// postgresIamUser returns the IAM user for the given credentials in the format expected by Cloud SQL
+// for PostgreSQL.
 func postgresIamUser(ctx context.Context, creds *google.Credentials) (string, error) {
 	iamUser, err := cloud.IamUser(ctx, creds)
 	if err != nil {
@@ -259,7 +259,7 @@ func postgresIamUser(ctx context.Context, creds *google.Credentials) (string, er
 	return u, nil
 }
 
-// iamUserType returns the CloudSQL IAM user type for the resolved IAM identity. It classifies
+// iamUserType returns the Cloud SQL IAM user type for the resolved IAM identity. It classifies
 // service accounts by identity shape first, then falls back to credential JSON metadata.
 func iamUserType(creds *google.Credentials, iamUser string) string {
 	normalized := strings.TrimSpace(strings.ToLower(iamUser))
@@ -281,7 +281,7 @@ func iamUserType(creds *google.Credentials, iamUser string) string {
 	return userCloudIamUser
 }
 
-// cloudsqlPostgresIamDsn returns the DSN for connecting to a CloudSQL Postgres instance using IAM
+// cloudsqlPostgresIamDsn returns the DSN for connecting to a Cloud SQL for PostgreSQL instance using IAM
 // authentication. This DSN is used with the cloud.google.com/go/cloudsqlconn package of registered
 // drivers.
 func cloudsqlPostgresIamDsn(instanceIdentifier, dbname, username string) string {
@@ -291,7 +291,7 @@ func cloudsqlPostgresIamDsn(instanceIdentifier, dbname, username string) string 
 	)
 }
 
-// cloudsqlPostgresBuiltInDsn returns the DSN for connecting to a CloudSQL Postgres instance using
+// cloudsqlPostgresBuiltInDsn returns the DSN for connecting to a Cloud SQL for PostgreSQL instance using
 // built-in authentication. This DSN is used with the cloud.google.com/go/cloudsqlconn package of
 // registered drivers. The password is included in the DSN and this is not supported for external
 // use cases.

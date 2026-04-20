@@ -14,7 +14,7 @@ When operation `doesNotExist=false`, this module applies default privilege grant
 
 ## Requirements
 
-- A valid Postgres `connection` input must be provided.
+- A valid PostgreSQL `connection` input must be provided.
 
 - The database user in `connection` must have permission to execute `ALTER DEFAULT PRIVILEGES` for
   the configured owner role context (`FOR ROLE`).

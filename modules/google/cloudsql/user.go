@@ -29,12 +29,12 @@ var requiredUserParameters = []string{inputInstance, inputUser, inputUserType}
 // are only used temporarily by Blackstart to initially set up managed instances.
 var validUserTypes []string
 
-// NewCloudSqlUser creates a new instance of the CloudSQL user module.
+// NewCloudSqlUser creates a new instance of the Cloud SQL user module.
 func NewCloudSqlUser() blackstart.Module {
 	return &user{}
 }
 
-// user manages IAM users and service accounts for a CloudSQL instances.
+// user manages IAM users and service accounts for a Cloud SQL instances.
 type user struct {
 	target     *connectionConfig
 	sqlService *sqladmin.Service
@@ -43,10 +43,10 @@ type user struct {
 func (c *user) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:   "google_cloudsql_user",
-		Name: "Google CloudSQL user",
+		Name: "Google Cloud SQL user",
 		Description: util.CleanString(
 			`
-Ensures that a CloudSQL user exists with the specified parameters. In alignment with Blackstart's security best practices, this module only supports managing IAM users and service accounts, and does not support built-in users.
+Ensures that a Cloud SQL user exists with the specified parameters. In alignment with Blackstart's security best practices, this module only supports managing IAM users and service accounts, and does not support built-in users.
 
 **Notes**
 
@@ -54,7 +54,7 @@ Ensures that a CloudSQL user exists with the specified parameters. In alignment 
 `,
 		),
 		Requirements: []string{
-			"The CloudSQL instance must exist.",
+			"The Cloud SQL instance must exist.",
 			"The IAM user or service account specified must exist.",
 			"The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled on the project.",
 			"The instance must have [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.",
@@ -62,7 +62,7 @@ Ensures that a CloudSQL user exists with the specified parameters. In alignment 
 		},
 		Inputs: map[string]blackstart.InputValue{
 			inputInstance: {
-				Description: "CloudSQL instance ID.",
+				Description: "Cloud SQL instance ID.",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
@@ -72,12 +72,12 @@ Ensures that a CloudSQL user exists with the specified parameters. In alignment 
 				Required:    false,
 			},
 			inputRegion: {
-				Description: "Google Cloud region for the CloudSQL instance. If not provided, the region will be inferred from the instance ID.",
+				Description: "Google Cloud region for the Cloud SQL instance. If not provided, the region will be inferred from the instance ID.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
 			},
 			inputUser: {
-				Description: "Username for the CloudSQL user.",
+				Description: "Username for the Cloud SQL user.",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
@@ -89,7 +89,7 @@ Ensures that a CloudSQL user exists with the specified parameters. In alignment 
 		},
 		Outputs: map[string]blackstart.OutputValue{
 			outputUser: {
-				Description: "The name of the CloudSQL user that was created or managed.",
+				Description: "The name of the Cloud SQL user that was created or managed.",
 				Type:        reflect.TypeFor[string](),
 			},
 		},
@@ -268,17 +268,17 @@ func normalizeCloudSQLServiceAccountUsername(username, project string) (string, 
 		return "", fmt.Errorf("service account username cannot be empty")
 	}
 
-	// Full GSA email -> CloudSQL format.
+	// Full GSA email -> Cloud SQL format.
 	if strings.HasSuffix(trimmed, ".iam.gserviceaccount.com") {
 		return strings.TrimSuffix(trimmed, ".gserviceaccount.com"), nil
 	}
 
-	// Already CloudSQL service-account format.
+	// Already Cloud SQL service-account format.
 	if strings.HasSuffix(trimmed, ".iam") && strings.Contains(trimmed, "@") {
 		return trimmed, nil
 	}
 
-	// Bare service-account name -> CloudSQL format.
+	// Bare service-account name -> Cloud SQL format.
 	if strings.Contains(trimmed, "@") {
 		return "", fmt.Errorf("invalid service account username format: %s", trimmed)
 	}
@@ -288,7 +288,7 @@ func normalizeCloudSQLServiceAccountUsername(username, project string) (string, 
 	return fmt.Sprintf("%s@%s.iam", trimmed, project), nil
 }
 
-// createUser creates the user in CloudSQL. If the user already exists, it is deleted first.
+// createUser creates the user in Cloud SQL. If the user already exists, it is deleted first.
 func (c *user) createUser(ctx context.Context, user *sqladmin.User) error {
 	// Check if the user already exists. If we are being called we need to delete the user first
 	// (if they exist) because the check has failed.
@@ -322,7 +322,7 @@ func (c *user) createUser(ctx context.Context, user *sqladmin.User) error {
 	return nil
 }
 
-// deleteUser deletes the user from CloudSQL.
+// deleteUser deletes the user from Cloud SQL.
 func (c *user) deleteUser(ctx context.Context, user *sqladmin.User) error {
 	// Delete the user
 	deleteCall := c.sqlService.Users.Delete(c.target.project, c.target.instance)

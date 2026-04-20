@@ -4,7 +4,7 @@ title: postgres_grant
 
 # postgres_grant
 
-Ensures that Postgres roles have the specified permissions on resources. The scope specifies the
+Ensures that PostgreSQL roles have the specified permissions on resources. The scope specifies the
 type of resources where the permissions will be applied.
 
 If multiple values are provided for `role`, `permission`, `schema`, or `resource`, Blackstart
@@ -16,7 +16,7 @@ on valid permissions for each scope.
 
 ## Requirements
 
-- A valid Postgres `connection` input must be provided.
+- A valid PostgreSQL `connection` input must be provided.
 
 - The database user of the `connection` must have sufficient privileges to apply the requested
   grants.
@@ -31,7 +31,7 @@ on valid permissions for each scope.
 
 - `LARGE_OBJECT` scope requires `resource` to be a numeric large object OID (`loid`).
 
-- `PARAMETER` scope requires a Postgres version that supports parameter privileges
+- `PARAMETER` scope requires a PostgreSQL version that supports parameter privileges
   (`GRANT ... ON PARAMETER ...`) and `has_parameter_privilege`.
 
 ## Inputs
@@ -39,7 +39,7 @@ on valid permissions for each scope.
 | Id                | Description                                                                                                                                                                                                                                                                 | Type             | Required |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------- |
 | all               | Apply permissions to all resources of the scope (if supported) in the schema. When set, the resource input must be empty.<br>Default: **false**                                                                                                                             | bool             | false    |
-| connection        | database connection to the managed Postgres instance.                                                                                                                                                                                                                       | \*sql.DB         | true     |
+| connection        | database connection to the managed PostgreSQL instance.                                                                                                                                                                                                                     | \*sql.DB         | true     |
 | permission        | Permission(s) or role membership(s) to be assigned to the role(s). Depending on the resource scope, the valid permissions may vary.                                                                                                                                         | string, []string | true     |
 | resource          | Resource(s) where the permission(s) are applied. For `FUNCTION`, `PROCEDURE`, and `ROUTINE` scopes, provide a routine signature with argument types.                                                                                                                        | string, []string | false    |
 | role              | Role(s) or username(s) that will have the grant assigned.                                                                                                                                                                                                                   | string, []string | true     |

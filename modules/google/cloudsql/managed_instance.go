@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -23,6 +24,7 @@ func init() {
 }
 
 var _ blackstart.Module = &managedInstance{}
+var _ io.Closer = &managedInstance{}
 var requiredCloudSqlManagedInstanceParameters = []string{inputInstance}
 
 const checkCloudSqlSuperuserRoleQuery = `
@@ -32,46 +34,52 @@ JOIN pg_auth_members AS m ON r.oid = m.roleid
 JOIN pg_roles AS u ON u.oid = m.member
 WHERE u.rolname = CURRENT_USER AND r.rolname = 'cloudsqlsuperuser';`
 
-// NewCloudSqlManagedInstance creates a new instance of the CloudSQL managed instance module.
+// NewCloudSqlManagedInstance creates a new instance of the Cloud SQL managed instance module.
 func NewCloudSqlManagedInstance() blackstart.Module {
 	return &managedInstance{}
 }
 
 type managedInstance struct {
-	target     *connectionConfig
-	sqlService *sqladmin.Service
-	creds      *google.Credentials
+	target             *connectionConfig
+	sqlService         *sqladmin.Service
+	creds              *google.Credentials
+	managedConnections []*sql.DB
 }
 
 func (m *managedInstance) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:   "google_cloudsql_managed_instance",
-		Name: "Google CloudSQL Managed database instance",
+		Name: "Google Cloud SQL Managed database instance",
 		Description: util.CleanString(
 			`
-Manages a Google CloudSQL instance. When managed, the module will ensure that the current workload 
+Manages a Google Cloud SQL instance. When managed, the module will ensure that the current workload 
 identity is a member of the '''cloudsqlsuperuser''' role on the instance. The instance is then
 usable for further operations.
 
 **Notes**
 
-- This module does not create or delete the CloudSQL instance, it only manages the IAM user access.
+- This module does not create or delete the Cloud SQL instance, it only manages the IAM user access.
 - The module uses a temporary built-in user to perform the role management operations. This user is
   created and deleted as needed.
 - When the module is set to not exist, the current workload identity is removed from the 
   '''cloudsqlsuperuser''' role, but the user itself is not deleted.
+- In Cloud SQL for PostgreSQL, '''cloudsqlsuperuser''' is not a true PostgreSQL '''superuser''' role. For
+  grants on database objects (for example tables), the managing role may still need '''WITH GRANT OPTION'''.
+  A simple approach is to grant the Blackstart service account role membership in the owner role
+  of the target object. Otherwise, the Blackstart service account will need to be granted the same 
+  permission '''WITH GRANT OPTION''' on the target object to be able to manage permissions for other users.
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not supported by this module.
 `,
 		),
 		Requirements: []string{
-			"The CloudSQL instance must exist.",
+			"The Cloud SQL instance must exist.",
 			"The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled on the project.",
 			"The instance must have [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.",
 			"The Blackstart service account must have permission to manage, connect, and login to the database instance. Suggested pre-defined roles are [`roles/cloudsql.admin`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.admin), [`roles/cloudsql.client`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.client), and [`roles/cloudsql.instanceUser`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.instanceUser).",
 		},
 		Inputs: map[string]blackstart.InputValue{
 			inputInstance: {
-				Description: "CloudSQL instance ID to manage.",
+				Description: "Cloud SQL instance ID to manage.",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
@@ -100,12 +108,12 @@ usable for further operations.
 		},
 		Outputs: map[string]blackstart.OutputValue{
 			outputConnection: {
-				Description: "Database connection to the managed CloudSQL instance authenticated as the managing user.",
+				Description: "Database connection to the managed Cloud SQL instance authenticated as the managing user.",
 				Type:        reflect.TypeFor[*sql.DB](),
 			},
 		},
 		Examples: map[string]string{
-			"Manage a CloudSQL instance": `id: manage-instance
+			"Manage a Cloud SQL instance": `id: manage-instance
 module: google_cloudsql_managed_instance
 inputs:
   instance: my-cloudsql-instance`,
@@ -221,6 +229,12 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 		return false, fmt.Errorf("failed to open database connection: %w", err)
 	}
+	keepConnectionOpen := false
+	defer func() {
+		if !keepConnectionOpen {
+			_ = db.Close()
+		}
+	}()
 
 	isAdmin, err := checkIfSuperuser(ctx, db)
 	if err != nil {
@@ -239,6 +253,8 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		if err != nil {
 			return res, err
 		}
+		m.trackManagedConnection(db)
+		keepConnectionOpen = true
 	}
 	return res, nil
 }
@@ -321,12 +337,44 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
+	keepConnectionOpen := false
+	defer func() {
+		if !keepConnectionOpen {
+			_ = db.Close()
+		}
+	}()
 	err = ctx.Output(outputConnection, db)
 	if err != nil {
 		return err
 	}
+	m.trackManagedConnection(db)
+	keepConnectionOpen = true
 
 	return err
+}
+
+// Close releases any managed database connections.
+func (m *managedInstance) Close() error {
+	var closeErr error
+	for _, db := range m.managedConnections {
+		if db == nil {
+			continue
+		}
+		if err := db.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+	}
+	m.managedConnections = nil
+	return closeErr
+}
+
+// trackManagedConnection registers a connection for lifecycle cleanup at the
+// end of workflow execution.
+func (m *managedInstance) trackManagedConnection(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	m.managedConnections = append(m.managedConnections, db)
 }
 
 // setup initializes the module by reading inputs, creating the target configuration and setting
@@ -468,7 +516,7 @@ func (m *managedInstance) getBuiltinDriver(ctx blackstart.ModuleContext) (string
 // user is created and deleted as needed. When performing the role management operations, given
 // this is only called when the database is not already managed, we can assume the current user
 // does not have the `cloudsqlsuperuser` role, so we need to use a built-in user to perform the
-// operations. Google CloudSQL grants built-in users (non-IAM) the `cloudsqlsuperuser` role,
+// operations. Google Cloud SQL grants built-in users (non-IAM) the `cloudsqlsuperuser` role,
 // but IAM users must be explicitly granted the role.
 func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, func() error, error) {
 	const adminDb = "postgres"
@@ -527,7 +575,7 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 	return tempDb, closer, nil
 }
 
-// checkInstanceExists checks if the specified CloudSQL instance exists in the given project.
+// checkInstanceExists checks if the specified Cloud SQL instance exists in the given project.
 func (m *managedInstance) checkInstanceExists(ctx blackstart.ModuleContext) (bool, error) {
 	// List instances for the given project
 	instancesListCall := m.sqlService.Instances.List(m.target.project)
@@ -592,7 +640,7 @@ func isManagedInstanceBootstrapConnectionError(err error) bool {
 	return strings.Contains(msg, "sqlstate 28p01")
 }
 
-// validateUser checks if the provided user is valid for a Postgres role.
+// validateUser checks if the provided user is valid for a PostgreSQL role.
 func validateUser(id string) error {
 	// check non-empty
 	if id == "" {

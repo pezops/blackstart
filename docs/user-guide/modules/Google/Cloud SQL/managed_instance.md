@@ -4,23 +4,29 @@ title: google_cloudsql_managed_instance
 
 # google_cloudsql_managed_instance
 
-Manages a Google CloudSQL instance. When managed, the module will ensure that the current workload
+Manages a Google Cloud SQL instance. When managed, the module will ensure that the current workload
 identity is a member of the `cloudsqlsuperuser` role on the instance. The instance is then usable
 for further operations.
 
 **Notes**
 
-- This module does not create or delete the CloudSQL instance, it only manages the IAM user access.
+- This module does not create or delete the Cloud SQL instance, it only manages the IAM user access.
 - The module uses a temporary built-in user to perform the role management operations. This user is
   created and deleted as needed.
 - When the module is set to not exist, the current workload identity is removed from the
   `cloudsqlsuperuser` role, but the user itself is not deleted.
+- In Cloud SQL for PostgreSQL, `cloudsqlsuperuser` is not a true PostgreSQL `superuser` role. For
+  grants on database objects (for example tables), the managing role may still need
+  `WITH GRANT OPTION`. A simple approach is to grant the Blackstart service account role membership
+  in the owner role of the target object. Otherwise, the Blackstart service account will need to be
+  granted the same permission `WITH GRANT OPTION` on the target object to be able to manage
+  permissions for other users.
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not
   supported by this module.
 
 ## Requirements
 
-- The CloudSQL instance must exist.
+- The Cloud SQL instance must exist.
 
 - The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled
   on the project.
@@ -42,19 +48,19 @@ for further operations.
 | --------------- | --------------------------------------------------------------------------------------------------- | ------ | -------- |
 | connection_type | Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`.<br>Default: **PRIVATE_IP** | string | false    |
 | database        | Database name to connect to and return in the managed connection.<br>Default: **postgres**          | string | false    |
-| instance        | CloudSQL instance ID to manage.                                                                     | string | true     |
+| instance        | Cloud SQL instance ID to manage.                                                                    | string | true     |
 | project         | Google Cloud project ID. If not provided, the current project will be used.                         | string | false    |
 | user            | The user to manage. If not provided, the current user will be used.                                 | string | false    |
 
 ## Outputs
 
-| Id         | Description                                                                              | Type     |
-| ---------- | ---------------------------------------------------------------------------------------- | -------- |
-| connection | Database connection to the managed CloudSQL instance authenticated as the managing user. | \*sql.DB |
+| Id         | Description                                                                               | Type     |
+| ---------- | ----------------------------------------------------------------------------------------- | -------- |
+| connection | Database connection to the managed Cloud SQL instance authenticated as the managing user. | \*sql.DB |
 
 ## Examples
 
-### Manage a CloudSQL instance
+### Manage a Cloud SQL instance
 
 ```yaml
 id: manage-instance

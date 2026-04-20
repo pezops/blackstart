@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/lib/pq"
@@ -12,6 +13,8 @@ import (
 )
 
 var requiredConnectionParameters = []string{inputUsername}
+var _ blackstart.Module = &connectionModule{}
+var _ io.Closer = &connectionModule{}
 
 func init() {
 	blackstart.RegisterModule("postgres_connection", NewPostgresConnection)
@@ -49,7 +52,7 @@ func (c *connectionModule) Info() blackstart.ModuleInfo {
 		Name:        "PostgreSQL connection",
 		Description: "Connection to a PostgreSQL database.",
 		Requirements: []string{
-			"The Postgres server must be reachable from the Blackstart runtime.",
+			"The PostgreSQL server must be reachable from the Blackstart runtime.",
 			"The provided credentials must be valid for the target database.",
 			"The provided user must have permission to connect to the target database.",
 			"TLS and `sslmode` settings must match the server configuration.",
@@ -154,7 +157,22 @@ func (c *connectionModule) Set(ctx blackstart.ModuleContext) error {
 		return fmt.Errorf("error pinging database: %w", err)
 	}
 	c.db = db
+	if err = ctx.Output(outputConnection, c.db); err != nil {
+		_ = c.db.Close()
+		c.db = nil
+		return err
+	}
 	return nil
+}
+
+// Close releases the active database connection held by the module.
+func (c *connectionModule) Close() error {
+	if c.db == nil {
+		return nil
+	}
+	err := c.db.Close()
+	c.db = nil
+	return err
 }
 
 // createTargetConnection creates the target connection from the module context inputs.

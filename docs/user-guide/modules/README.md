@@ -2,4 +2,4 @@
 
 - [Google](./Google/)
 - [Kubernetes](./Kubernetes/)
-- [Postgres](./Postgres/)
+- [PostgreSQL](./PostgreSQL/)

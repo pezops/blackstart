@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,6 +14,19 @@ import (
 
 	"github.com/pezops/blackstart"
 )
+
+type capturingModuleContext struct {
+	blackstart.ModuleContext
+	outputs map[string]interface{}
+}
+
+func (c *capturingModuleContext) Output(key string, value interface{}) error {
+	if c.outputs == nil {
+		c.outputs = map[string]interface{}{}
+	}
+	c.outputs[key] = value
+	return c.ModuleContext.Output(key, value)
+}
 
 func TestConnectionValidate(t *testing.T) {
 	mod := connectionModule{}
@@ -43,7 +57,7 @@ func TestConnectionCheckCreatesTarget(t *testing.T) {
 	op := &blackstart.Operation{
 		Id:     "test",
 		Module: "postgres_connection",
-		Name:   "Test Postgres connection",
+		Name:   "Test PostgreSQL connection",
 		Inputs: map[string]blackstart.Input{
 			inputHost:     blackstart.NewInputFromValue("localhost"),
 			inputUsername: blackstart.NewInputFromValue("user"),
@@ -111,7 +125,7 @@ func TestConnectionSet(t *testing.T) {
 	op := &blackstart.Operation{
 		Id:     "test",
 		Module: "postgres_connection",
-		Name:   "Test Postgres connection",
+		Name:   "Test PostgreSQL connection",
 		Inputs: map[string]blackstart.Input{
 			inputHost:     blackstart.NewInputFromValue(pgHost),
 			inputPort:     blackstart.NewInputFromValue(pgPort),
@@ -139,4 +153,97 @@ func TestConnectionSet(t *testing.T) {
 	// Verify the connection is usable
 	err = mod.db.Ping()
 	require.NoError(t, err)
+}
+
+func TestConnectionSet_EmitsConnectionOutput(t *testing.T) {
+	pctx := context.Background()
+
+	dsn, err := testPg.ConnectionString(pctx)
+	require.NoError(t, err)
+
+	parse, err := url.Parse(dsn)
+	require.NoError(t, err)
+
+	pgHost := strings.Split(parse.Host, ":")[0]
+	pgPort, err := strconv.Atoi(parse.Port())
+	require.NoError(t, err)
+	pgUsername := parse.User.Username()
+	pgPassword, _ := parse.User.Password()
+	pgDatabase := strings.TrimPrefix(parse.Path, "/")
+
+	mod := connectionModule{}
+	op := &blackstart.Operation{
+		Id:     "test",
+		Module: "postgres_connection",
+		Name:   "Test PostgreSQL connection",
+		Inputs: map[string]blackstart.Input{
+			inputHost:     blackstart.NewInputFromValue(pgHost),
+			inputPort:     blackstart.NewInputFromValue(pgPort),
+			inputDatabase: blackstart.NewInputFromValue(pgDatabase),
+			inputUsername: blackstart.NewInputFromValue(pgUsername),
+			inputPassword: blackstart.NewInputFromValue(pgPassword),
+			inputSslMode:  blackstart.NewInputFromValue("disable"),
+		},
+	}
+	require.NoError(t, mod.Validate(*op))
+
+	baseCtx := blackstart.OpContext(blackstart.InputsToContext(pctx, op.Inputs), op)
+	ctx := &capturingModuleContext{ModuleContext: baseCtx}
+
+	check, err := mod.Check(ctx)
+	require.NoError(t, err)
+	require.False(t, check)
+
+	err = mod.Set(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, mod.db)
+
+	value, ok := ctx.outputs[outputConnection]
+	require.True(t, ok)
+	outDb, ok := value.(*sql.DB)
+	require.True(t, ok)
+	require.Equal(t, mod.db, outDb)
+}
+
+func TestConnectionClose_ClosesConnection(t *testing.T) {
+	pctx := context.Background()
+
+	dsn, err := testPg.ConnectionString(pctx)
+	require.NoError(t, err)
+
+	parse, err := url.Parse(dsn)
+	require.NoError(t, err)
+
+	pgHost := strings.Split(parse.Host, ":")[0]
+	pgPort, err := strconv.Atoi(parse.Port())
+	require.NoError(t, err)
+	pgUsername := parse.User.Username()
+	pgPassword, _ := parse.User.Password()
+	pgDatabase := strings.TrimPrefix(parse.Path, "/")
+
+	mod := connectionModule{}
+	op := &blackstart.Operation{
+		Id:     "test",
+		Module: "postgres_connection",
+		Name:   "Test PostgreSQL connection",
+		Inputs: map[string]blackstart.Input{
+			inputHost:     blackstart.NewInputFromValue(pgHost),
+			inputPort:     blackstart.NewInputFromValue(pgPort),
+			inputDatabase: blackstart.NewInputFromValue(pgDatabase),
+			inputUsername: blackstart.NewInputFromValue(pgUsername),
+			inputPassword: blackstart.NewInputFromValue(pgPassword),
+			inputSslMode:  blackstart.NewInputFromValue("disable"),
+		},
+	}
+	require.NoError(t, mod.Validate(*op))
+
+	ctx := blackstart.OpContext(blackstart.InputsToContext(pctx, op.Inputs), op)
+	check, err := mod.Check(ctx)
+	require.NoError(t, err)
+	require.False(t, check)
+	require.NoError(t, mod.Set(ctx))
+	require.NotNil(t, mod.db)
+
+	require.NoError(t, mod.Close())
+	require.Nil(t, mod.db)
 }
