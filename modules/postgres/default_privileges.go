@@ -18,13 +18,13 @@ const defaultACLObjTypeTables = "r"
 type defaultPrivilegeScope string
 
 const (
-	defaultPrivilegeScopeTables       defaultPrivilegeScope = "TABLES"
-	defaultPrivilegeScopeSequences    defaultPrivilegeScope = "SEQUENCES"
-	defaultPrivilegeScopeFunctions    defaultPrivilegeScope = "FUNCTIONS"
-	defaultPrivilegeScopeRoutines     defaultPrivilegeScope = "ROUTINES"
-	defaultPrivilegeScopeTypes        defaultPrivilegeScope = "TYPES"
-	defaultPrivilegeScopeSchemas      defaultPrivilegeScope = "SCHEMAS"
-	defaultPrivilegeScopeLargeObjects defaultPrivilegeScope = "LARGE_OBJECTS"
+	defaultPrivilegeScopeTables       defaultPrivilegeScope = "TABLE"
+	defaultPrivilegeScopeSequences    defaultPrivilegeScope = "SEQUENCE"
+	defaultPrivilegeScopeFunctions    defaultPrivilegeScope = "FUNCTION"
+	defaultPrivilegeScopeRoutines     defaultPrivilegeScope = "ROUTINE"
+	defaultPrivilegeScopeTypes        defaultPrivilegeScope = "TYPE"
+	defaultPrivilegeScopeSchemas      defaultPrivilegeScope = "SCHEMA"
+	defaultPrivilegeScopeLargeObjects defaultPrivilegeScope = "LARGE_OBJECT"
 )
 
 const (
@@ -166,7 +166,7 @@ When operation '''doesNotExist=false''', this module applies default privilege g
 				Required:    true,
 			},
 			inputScope: {
-				Description: "Object class for default privileges. Supported values: `TABLES`, `SEQUENCES`, `FUNCTIONS`, `ROUTINES`, `TYPES`, `SCHEMAS`, `LARGE_OBJECTS`.",
+				Description: "Object class for default privileges. Supported values: `TABLE`, `SEQUENCE`, `FUNCTION`, `ROUTINE`, `TYPE`, `SCHEMA`, `LARGE_OBJECT`.",
 				Type:        reflect.TypeFor[string](),
 				Required:    true,
 			},
@@ -208,7 +208,7 @@ inputs:
   permission:
     - SELECT
     - UPDATE
-  scope: TABLES
+  scope: TABLE
   for_role: app_owner
   schema: public
   with_grant_option: false`,
@@ -222,7 +222,7 @@ inputs:
       output: connection
   role: analytics_team
   permission: UPDATE
-  scope: TABLES
+  scope: TABLE
   for_role: app_owner
   schema: public
   revoke_mode: RESTRICT`,
@@ -236,7 +236,7 @@ inputs:
       output: connection
   role: PUBLIC
   permission: EXECUTE
-  scope: FUNCTIONS
+  scope: FUNCTION
   for_role: admin
   revoke_mode: RESTRICT`,
 		},
@@ -246,6 +246,22 @@ inputs:
 func parseDefaultPrivilegeScope(value string) (defaultPrivilegeScope, error) {
 	normalized := strings.ToUpper(strings.TrimSpace(value))
 	normalized = strings.ReplaceAll(normalized, " ", "_")
+	switch normalized {
+	case "TABLES":
+		normalized = "TABLE"
+	case "SEQUENCES":
+		normalized = "SEQUENCE"
+	case "FUNCTIONS":
+		normalized = "FUNCTION"
+	case "ROUTINES":
+		normalized = "ROUTINE"
+	case "TYPES":
+		normalized = "TYPE"
+	case "SCHEMAS":
+		normalized = "SCHEMA"
+	case "LARGE_OBJECTS":
+		normalized = "LARGE_OBJECT"
+	}
 	scope := defaultPrivilegeScope(normalized)
 	if !slices.Contains(defaultPrivilegeScopes, scope) {
 		return "", fmt.Errorf("invalid %q value %q", inputScope, value)

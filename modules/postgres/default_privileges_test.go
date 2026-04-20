@@ -347,13 +347,13 @@ func TestDefaultPrivilegesModule_ValidateScopeRules(t *testing.T) {
 				inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
 				inputRole:       blackstart.NewInputFromValue("app_user"),
 				inputPermission: blackstart.NewInputFromValue("USAGE"),
-				inputScope:      blackstart.NewInputFromValue("SCHEMAS"),
+				inputScope:      blackstart.NewInputFromValue("SCHEMA"),
 				inputSchema:     blackstart.NewInputFromValue("public"),
 			},
 		}
 		err := m.Validate(op)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "not supported when scope is SCHEMAS")
+		require.Contains(t, err.Error(), "not supported when scope is SCHEMA")
 	})
 
 	t.Run("accepts_large_objects_scope_alias", func(t *testing.T) {
@@ -365,6 +365,21 @@ func TestDefaultPrivilegesModule_ValidateScopeRules(t *testing.T) {
 				inputRole:       blackstart.NewInputFromValue("app_user"),
 				inputPermission: blackstart.NewInputFromValue("SELECT"),
 				inputScope:      blackstart.NewInputFromValue("LARGE OBJECTS"),
+			},
+		}
+		err := m.Validate(op)
+		require.NoError(t, err)
+	})
+
+	t.Run("accepts_plural_scope_alias", func(t *testing.T) {
+		op := blackstart.Operation{
+			Id:     "default-priv-plural-scope-alias",
+			Module: defaultPrivilegesModuleID,
+			Inputs: map[string]blackstart.Input{
+				inputConnection: blackstart.NewInputFromValue(&fakeConn{}),
+				inputRole:       blackstart.NewInputFromValue("app_user"),
+				inputPermission: blackstart.NewInputFromValue("SELECT"),
+				inputScope:      blackstart.NewInputFromValue("TABLES"),
 			},
 		}
 		err := m.Validate(op)
