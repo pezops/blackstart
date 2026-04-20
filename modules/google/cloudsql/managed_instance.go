@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -23,6 +24,7 @@ func init() {
 }
 
 var _ blackstart.Module = &managedInstance{}
+var _ io.Closer = &managedInstance{}
 var requiredCloudSqlManagedInstanceParameters = []string{inputInstance}
 
 const checkCloudSqlSuperuserRoleQuery = `
@@ -38,9 +40,10 @@ func NewCloudSqlManagedInstance() blackstart.Module {
 }
 
 type managedInstance struct {
-	target     *connectionConfig
-	sqlService *sqladmin.Service
-	creds      *google.Credentials
+	target             *connectionConfig
+	sqlService         *sqladmin.Service
+	creds              *google.Credentials
+	managedConnections []*sql.DB
 }
 
 func (m *managedInstance) Info() blackstart.ModuleInfo {
@@ -226,6 +229,12 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 		return false, fmt.Errorf("failed to open database connection: %w", err)
 	}
+	keepConnectionOpen := false
+	defer func() {
+		if !keepConnectionOpen {
+			_ = db.Close()
+		}
+	}()
 
 	isAdmin, err := checkIfSuperuser(ctx, db)
 	if err != nil {
@@ -244,6 +253,8 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		if err != nil {
 			return res, err
 		}
+		m.trackManagedConnection(db)
+		keepConnectionOpen = true
 	}
 	return res, nil
 }
@@ -326,12 +337,44 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
+	keepConnectionOpen := false
+	defer func() {
+		if !keepConnectionOpen {
+			_ = db.Close()
+		}
+	}()
 	err = ctx.Output(outputConnection, db)
 	if err != nil {
 		return err
 	}
+	m.trackManagedConnection(db)
+	keepConnectionOpen = true
 
 	return err
+}
+
+// Close releases any managed database connections.
+func (m *managedInstance) Close() error {
+	var closeErr error
+	for _, db := range m.managedConnections {
+		if db == nil {
+			continue
+		}
+		if err := db.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+	}
+	m.managedConnections = nil
+	return closeErr
+}
+
+// trackManagedConnection registers a connection for lifecycle cleanup at the
+// end of workflow execution.
+func (m *managedInstance) trackManagedConnection(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	m.managedConnections = append(m.managedConnections, db)
 }
 
 // setup initializes the module by reading inputs, creating the target configuration and setting

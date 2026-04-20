@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"reflect"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -99,6 +102,18 @@ func (we *workflowExecution) execute(ctx context.Context) WorkflowResult {
 
 	// Create all modules and validate the operations.
 	modules := make(map[string]Module)
+	defer func() {
+		closeErr := closeWorkflowModules(modules)
+		if closeErr == nil {
+			return
+		}
+		if result.Err == nil {
+			result.Err = closeErr
+			return
+		}
+		result.Err = fmt.Errorf("%w; %v", result.Err, closeErr)
+	}()
+
 	operations := make(map[string]*Operation)
 	moduleInfo := make(map[string]ModuleInfo)
 
@@ -174,7 +189,12 @@ func (we *workflowExecution) execute(ctx context.Context) WorkflowResult {
 		}
 
 		operationContexts[id] = mctx
-		err = op.execute(mctx, we.logger)
+		m, ok := modules[op.Id]
+		if !ok {
+			result.Err = fmt.Errorf("unable to find module for operation '%s'", op.Id)
+			return result
+		}
+		err = op.executeWithModule(m, mctx, we.logger)
 		if err != nil {
 			result.Err = err
 			return result
@@ -183,6 +203,32 @@ func (we *workflowExecution) execute(ctx context.Context) WorkflowResult {
 	}
 
 	return result
+}
+
+func closeWorkflowModules(modules map[string]Module) error {
+	if len(modules) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(modules))
+	for id := range modules {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	errs := make([]string, 0)
+	for _, id := range ids {
+		closer, ok := modules[id].(io.Closer)
+		if !ok {
+			continue
+		}
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Sprintf("operation %q: %v", id, err))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("module cleanup failed: %s", strings.Join(errs, "; "))
 }
 
 // findDuplicateOperationID returns the first duplicate operation ID and the corresponding

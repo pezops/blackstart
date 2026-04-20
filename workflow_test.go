@@ -4,11 +4,52 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var cleanupModuleCloseCalls atomic.Int32
+
+type cleanupTestModule struct{}
+
+func init() {
+	RegisterModule("cleanup_test_module", func() Module { return &cleanupTestModule{} })
+}
+
+func (m *cleanupTestModule) Info() ModuleInfo {
+	return ModuleInfo{
+		Id: "cleanup_test_module",
+		Inputs: map[string]InputValue{
+			testCheckResult: {
+				Type:     reflect.TypeFor[bool](),
+				Required: true,
+			},
+			testSetResult: {
+				Type:     reflect.TypeFor[bool](),
+				Required: true,
+			},
+		},
+		Outputs: map[string]OutputValue{},
+	}
+}
+
+func (m *cleanupTestModule) Validate(_ Operation) error { return nil }
+func (m *cleanupTestModule) Check(ctx ModuleContext) (bool, error) {
+	return InputAs[bool](ctxMustInput(ctx, testCheckResult), true)
+}
+func (m *cleanupTestModule) Set(_ ModuleContext) error { return nil }
+func (m *cleanupTestModule) Close() error {
+	cleanupModuleCloseCalls.Add(1)
+	return nil
+}
+
+func ctxMustInput(ctx ModuleContext, key string) Input {
+	in, _ := ctx.Input(key)
+	return in
+}
 
 type testOpValues map[string]map[string]interface{}
 
@@ -285,6 +326,27 @@ func TestWorkflowExecution_DuplicateOperationID(t *testing.T) {
 	require.NotNil(t, res.Op)
 	require.Equal(t, "dup", res.Op.Id)
 	require.Equal(t, phaseSetup, res.Phase)
+}
+
+func TestWorkflowExecution_CallsOptionalModuleClose(t *testing.T) {
+	cleanupModuleCloseCalls.Store(0)
+	wf := Workflow{
+		Name: "cleanup-close-test",
+		Operations: []Operation{
+			{
+				Id:     "cleanup-op",
+				Module: "cleanup_test_module",
+				Inputs: map[string]Input{
+					testCheckResult: NewInputFromValue(true),
+					testSetResult:   NewInputFromValue(true),
+				},
+			},
+		},
+	}
+
+	res := wf.Run(context.Background())
+	require.NoError(t, res.Err)
+	require.Equal(t, int32(1), cleanupModuleCloseCalls.Load())
 }
 
 // TestOpoSort tests the topological sorting of operations into an expected order.
