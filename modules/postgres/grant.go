@@ -11,6 +11,8 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/lib/pq"
+
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/util"
 )
@@ -949,15 +951,27 @@ func (g *grantModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	}
 
 	for _, target := range targets {
-		query, queryParams, queryErr := getGrantExistsQuery(target)
+		existsQueries, queryErr := getGrantExistsQueries(target)
 		if queryErr != nil {
 			return false, fmt.Errorf("error getting grant query: %w", queryErr)
 		}
 
-		var exists bool
-		err = g.db.QueryRowContext(ctx, query, queryParams...).Scan(&exists)
-		if err != nil {
-			return false, fmt.Errorf("error checking grant: %w", err)
+		exists := true
+		for _, existsQuery := range existsQueries {
+			var queryExists bool
+			err = g.db.QueryRowContext(ctx, existsQuery.query, existsQuery.params...).Scan(&queryExists)
+			if err != nil {
+				if isPQInvalidParameterValueError(err) {
+					// Ignore unsupported privilege checks (for example, newer privileges on
+					// older server versions) and continue evaluating remaining checks.
+					continue
+				}
+				return false, fmt.Errorf("error checking grant: %w", err)
+			}
+			if !queryExists {
+				exists = false
+				break
+			}
 		}
 
 		if ctx.DoesNotExist() {
@@ -972,6 +986,85 @@ func (g *grantModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// isPQInvalidParameterValueError returns true for PostgreSQL SQLSTATE 22023.
+func isPQInvalidParameterValueError(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+	return string(pqErr.Code) == "22023"
+}
+
+type grantExistsQuery struct {
+	query  string
+	params []interface{}
+}
+
+// getGrantExistsQueries returns one or more check queries for a grant target.
+// For ALL permissions, it expands to per-permission checks.
+func getGrantExistsQueries(target *grant) ([]grantExistsQuery, error) {
+	grantScope, err := stringToScope(target.Scope)
+	if err != nil {
+		return nil, err
+	}
+	normalizedPermission := normalizeGrantPermissionToken(grantScope, target.Permission)
+	if normalizedPermission != "ALL" {
+		q, p, queryErr := getGrantExistsQuery(target)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		return []grantExistsQuery{{query: q, params: p}}, nil
+	}
+
+	allPermissions := grantAllPermissions(grantScope)
+	if len(allPermissions) == 0 {
+		// Defensive fallback; INSTANCE scope with ALL is already invalid upstream.
+		q, p, queryErr := getGrantExistsQuery(target)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		return []grantExistsQuery{{query: q, params: p}}, nil
+	}
+
+	queries := make([]grantExistsQuery, 0, len(allPermissions))
+	for _, permission := range allPermissions {
+		specific := *target
+		specific.Permission = permission
+		q, p, queryErr := getGrantExistsQuery(&specific)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		queries = append(queries, grantExistsQuery{query: q, params: p})
+	}
+	return queries, nil
+}
+
+// grantAllPermissions expands ALL for each scope into concrete permissions.
+func grantAllPermissions(grantScope scope) []string {
+	switch grantScope {
+	case scopes.database:
+		return []string{"CREATE", "CONNECT", "TEMPORARY"}
+	case scopes.schema:
+		return []string{"CREATE", "USAGE"}
+	case scopes.table:
+		return []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"}
+	case scopes.sequence:
+		return []string{"USAGE", "SELECT", "UPDATE"}
+	case scopes.function, scopes.procedure, scopes.routine:
+		return []string{"EXECUTE"}
+	case scopes.domain, scopes.fdw, scopes.foreignServer, scopes.language, scopes.typ:
+		return []string{"USAGE"}
+	case scopes.largeObject:
+		return []string{"SELECT", "UPDATE"}
+	case scopes.parameter:
+		return []string{"SET", "ALTER SYSTEM"}
+	case scopes.tablespace:
+		return []string{"CREATE"}
+	default:
+		return nil
+	}
 }
 
 func (g *grantModule) Set(ctx blackstart.ModuleContext) error {

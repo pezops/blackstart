@@ -8,11 +8,38 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pezops/blackstart"
 )
+
+func TestIsPQInvalidParameterValueError(t *testing.T) {
+	t.Run("matches_pq_22023", func(t *testing.T) {
+		err := &pq.Error{
+			Code:    "22023",
+			Message: `unrecognized privilege type: "MAINTAIN"`,
+		}
+		require.True(t, isPQInvalidParameterValueError(err))
+	})
+
+	t.Run("matches_pq_22023_with_other_messages", func(t *testing.T) {
+		err := &pq.Error{
+			Code:    "22023",
+			Message: "invalid parameter value",
+		}
+		require.True(t, isPQInvalidParameterValueError(err))
+	})
+
+	t.Run("ignores_other_error_codes", func(t *testing.T) {
+		err := &pq.Error{
+			Code:    "42501",
+			Message: `unrecognized privilege type: "MAINTAIN"`,
+		}
+		require.False(t, isPQInvalidParameterValueError(err))
+	})
+}
 
 func TestGrantValidate_StaticPermissionValidation(t *testing.T) {
 	m := grantModule{}
@@ -323,6 +350,28 @@ func TestGrant(t *testing.T) {
 				inputPermission: blackstart.NewInputFromValue([]string{"SELECT", "UPDATE"}),
 				inputSchema:     blackstart.NewInputFromValue("public"),
 				inputResource:   blackstart.NewInputFromValue("blackstart_grant_test_orders"),
+				inputScope:      blackstart.NewInputFromValue("table"),
+				inputConnection: blackstart.NewInputFromValue(db),
+			},
+			grant: grantModule{},
+		},
+		{
+			name: "table_all_grant",
+			setup: func(t *testing.T) {
+				_, err = db.Exec("CREATE ROLE blackstart_2_all")
+				if err != nil {
+					t.Fatalf("failed to create Role: %v", err)
+				}
+				_, err = db.Exec("CREATE TABLE IF NOT EXISTS public.blackstart_grant_test_all_table (id INT)")
+				if err != nil {
+					t.Fatalf("failed to create table: %v", err)
+				}
+			},
+			inputs: map[string]blackstart.Input{
+				inputRole:       blackstart.NewInputFromValue("blackstart_2_all"),
+				inputPermission: blackstart.NewInputFromValue("ALL"),
+				inputSchema:     blackstart.NewInputFromValue("public"),
+				inputResource:   blackstart.NewInputFromValue("blackstart_grant_test_all_table"),
 				inputScope:      blackstart.NewInputFromValue("table"),
 				inputConnection: blackstart.NewInputFromValue(db),
 			},
