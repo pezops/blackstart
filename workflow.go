@@ -20,6 +20,9 @@ const (
 	phaseExecute  = "Execute"
 )
 
+type workflowOutputResolver func(operationID, outputKey string) (any, error)
+type workflowOutputResolverContextKey struct{}
+
 // Workflow represents a series of operations to be executed. Each operation may depend on the
 // outputs of other operations, forming a directed acyclic graph (DAG) of operations. The Workflow
 // will be executed in an order that respects these dependencies.
@@ -55,6 +58,19 @@ type WorkflowResult struct {
 	Err                 error
 	TotalOperations     int
 	CompletedOperations int
+}
+
+// ContextWorkflowOutput resolves an operation output from the current workflow
+// execution context.
+func ContextWorkflowOutput(ctx context.Context, operationID, outputKey string) (any, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("workflow output context is nil")
+	}
+	resolver, ok := ctx.Value(workflowOutputResolverContextKey{}).(workflowOutputResolver)
+	if !ok || resolver == nil {
+		return nil, fmt.Errorf("workflow output resolver not available in context")
+	}
+	return resolver(operationID, outputKey)
 }
 
 // Run will execute the Workflow using the provided context.
@@ -179,7 +195,38 @@ func (we *workflowExecution) execute(ctx context.Context) WorkflowResult {
 	for _, id := range sortedIds {
 		op := operations[id]
 		result.Op = op
-		mctx := newModuleContext(ctx, op)
+		allowedDeps := make(map[string]struct{}, len(op.DependsOn))
+		for _, depID := range op.DependsOn {
+			allowedDeps[depID] = struct{}{}
+		}
+		resolver := workflowOutputResolver(
+			func(operationID, outputKey string) (any, error) {
+				if _, ok := allowedDeps[operationID]; !ok {
+					return nil, fmt.Errorf(
+						"operation %q is not a declared dependency for operation %q",
+						operationID,
+						op.Id,
+					)
+				}
+				opCtx, ok := we.opCtxs[operationID]
+				if !ok {
+					return nil, fmt.Errorf("operation %q not found in workflow context", operationID)
+				}
+				var value any
+				value, err = opCtx.getOutput(outputKey)
+				if err != nil {
+					return nil, fmt.Errorf(
+						"output %q from operation %q not found in workflow context: %w",
+						outputKey,
+						operationID,
+						err,
+					)
+				}
+				return value, nil
+			},
+		)
+		opCtx := context.WithValue(ctx, workflowOutputResolverContextKey{}, resolver)
+		mctx := newModuleContext(opCtx, op)
 		we.opCtxs[id] = mctx
 
 		err = we.setupOperationContext(mctx, op)
