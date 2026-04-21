@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 🚀 Features
+
+- Add template module (#67) by @mbrancato
+
 ### 🐛 Bug Fixes
 
 - Ignore unsupported Postgres privileges on older versions of Postgres (#66) by @mbrancato
