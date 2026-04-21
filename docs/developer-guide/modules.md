@@ -94,9 +94,9 @@ configuring the resource, the `Set` method must set all outputs in the provided
 ## Cleanup
 
 Some modules allocate resources that should be released after a workflow run completes (for example
-open clients, pooled connections, or temporary handles that are not exposed as outputs). Each
-module must implement [`io.Closer`](https://pkg.go.dev/io#Closer) if it creates resources that need 
-to be closed when the workflow is completed.
+open clients, pooled connections, or temporary handles that are not exposed as outputs). Each module
+must implement [`io.Closer`](https://pkg.go.dev/io#Closer) if it creates resources that need to be
+closed when the workflow is completed.
 
-When implemented, `Close()` is called by the workflow runtime at the end of the run, including
-when the run fails.
+When implemented, `Close()` is called by the workflow runtime at the end of the run, including when
+the run fails.
