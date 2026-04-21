@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Ignore unsupported Postgres privileges on older versions of Postgres (#66) by @mbrancato
+
 ## [0.1.10] - 2026-04-20
 
 ### 🐛 Bug Fixes
