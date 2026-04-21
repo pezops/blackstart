@@ -189,32 +189,32 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = $2
   AND p.prokind IN ('f', 'p');
 `
-	getGrantDomainQuery = `SELECT has_type_privilege($1, $2, $3);`
-	getGrantDomainAllQuery = `SELECT has_type_privilege($1, $2, $3);`
-	getGrantFdwQuery = `SELECT has_foreign_data_wrapper_privilege($1, $2, $3);`
-	getGrantFdwAllQuery = `SELECT has_foreign_data_wrapper_privilege($1, $2, $3);`
-	getGrantForeignServerQuery = `SELECT has_server_privilege($1, $2, $3);`
+	getGrantDomainQuery           = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantDomainAllQuery        = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantFdwQuery              = `SELECT has_foreign_data_wrapper_privilege($1, $2, $3);`
+	getGrantFdwAllQuery           = `SELECT has_foreign_data_wrapper_privilege($1, $2, $3);`
+	getGrantForeignServerQuery    = `SELECT has_server_privilege($1, $2, $3);`
 	getGrantForeignServerAllQuery = `SELECT has_server_privilege($1, $2, $3);`
-	getGrantLanguageQuery = `SELECT has_language_privilege($1, $2, $3);`
-	getGrantLanguageAllQuery = `SELECT has_language_privilege($1, $2, $3);`
-	getGrantLargeObjectQuery = `SELECT has_largeobject_privilege($1, $2::oid, $3);`
-	getGrantLargeObjectAllQuery = `
+	getGrantLanguageQuery         = `SELECT has_language_privilege($1, $2, $3);`
+	getGrantLanguageAllQuery      = `SELECT has_language_privilege($1, $2, $3);`
+	getGrantLargeObjectQuery      = `SELECT has_largeobject_privilege($1, $2::oid, $3);`
+	getGrantLargeObjectAllQuery   = `
 SELECT (
   has_largeobject_privilege($1, $2::oid, $3)
   AND has_largeobject_privilege($1, $2::oid, $4)
 );
 `
-	getGrantParameterQuery = `SELECT has_parameter_privilege($1, $2, $3);`
+	getGrantParameterQuery    = `SELECT has_parameter_privilege($1, $2, $3);`
 	getGrantParameterAllQuery = `
 SELECT (
   has_parameter_privilege($1, $2, $3)
   AND has_parameter_privilege($1, $2, $4)
 );
 `
-	getGrantTablespaceQuery = `SELECT has_tablespace_privilege($1, $2, $3);`
-	getGrantTablespaceAllQuery = `SELECT has_tablespace_privilege($1, $2, $3);`
-	getGrantTypeQuery = `SELECT has_type_privilege($1, $2, $3);`
-	getGrantTypeAllQuery = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantTablespaceQuery           = `SELECT has_tablespace_privilege($1, $2, $3);`
+	getGrantTablespaceAllQuery        = `SELECT has_tablespace_privilege($1, $2, $3);`
+	getGrantTypeQuery                 = `SELECT has_type_privilege($1, $2, $3);`
+	getGrantTypeAllQuery              = `SELECT has_type_privilege($1, $2, $3);`
 	getGrantAllTablesInSchemaAllQuery = `
 SELECT
   COALESCE(
@@ -248,51 +248,51 @@ SELECT EXISTS (
     AND r.rolcanlogin = $5 AND r.rolreplication = $6
 )
 `
-	setGrantInstanceTemplate  = `GRANT "{{.Permission}}" TO "{{.Role}}";`
-	setGrantDatabaseTemplate  = `GRANT {{.Permission}} ON DATABASE "{{.Resource}}" TO "{{.Role}}";`
-	setGrantSchemaTemplate    = `GRANT {{.Permission}} ON SCHEMA "{{.Resource}}" TO "{{.Role}}";`
-	setGrantTableTemplate     = `GRANT {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
-	setGrantAllTablesTemplate = `GRANT {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
-	setGrantSequenceTemplate  = `GRANT {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
-	setGrantAllSequencesTemplate = `GRANT {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
-	setGrantFunctionTemplate = `GRANT {{.Permission}} ON FUNCTION "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
-	setGrantAllFunctionsTemplate = `GRANT {{.Permission}} ON ALL FUNCTIONS IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
-	setGrantProcedureTemplate = `GRANT {{.Permission}} ON PROCEDURE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
-	setGrantAllProceduresTemplate = `GRANT {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
-	setGrantRoutineTemplate = `GRANT {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
-	setGrantAllRoutinesTemplate = `GRANT {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
-	setGrantDomainTemplate = `GRANT {{.Permission}} ON DOMAIN "{{.Resource}}" TO "{{.Role}}";`
-	setGrantFdwTemplate = `GRANT {{.Permission}} ON FOREIGN DATA WRAPPER "{{.Resource}}" TO "{{.Role}}";`
-	setGrantForeignServerTemplate = `GRANT {{.Permission}} ON FOREIGN SERVER "{{.Resource}}" TO "{{.Role}}";`
-	setGrantLanguageTemplate = `GRANT {{.Permission}} ON LANGUAGE "{{.Resource}}" TO "{{.Role}}";`
-	setGrantLargeObjectTemplate = `GRANT {{.Permission}} ON LARGE OBJECT {{.Resource}} TO "{{.Role}}";`
-	setGrantParameterTemplate = `GRANT {{.Permission}} ON PARAMETER "{{.Resource}}" TO "{{.Role}}";`
-	setGrantTablespaceTemplate = `GRANT {{.Permission}} ON TABLESPACE "{{.Resource}}" TO "{{.Role}}";`
-	setGrantTypeTemplate = `GRANT {{.Permission}} ON TYPE "{{.Resource}}" TO "{{.Role}}";`
-	setRevokeInstanceTemplate = `REVOKE "{{.Permission}}" FROM "{{.Role}}";`
-	setRevokeDatabaseTemplate = `REVOKE {{.Permission}} ON DATABASE "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeSchemaTemplate   = `REVOKE {{.Permission}} ON SCHEMA "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeTableTemplate    = `REVOKE {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeAllTablesTemplate = `REVOKE {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
-	setRevokeSequenceTemplate = `REVOKE {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeAllSequencesTemplate = `REVOKE {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
-	setRevokeFunctionTemplate = `REVOKE {{.Permission}} ON FUNCTION "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
-	setRevokeAllFunctionsTemplate = `REVOKE {{.Permission}} ON ALL FUNCTIONS IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
-	setRevokeProcedureTemplate = `REVOKE {{.Permission}} ON PROCEDURE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
+	setGrantInstanceTemplate       = `GRANT "{{.Permission}}" TO "{{.Role}}";`
+	setGrantDatabaseTemplate       = `GRANT {{.Permission}} ON DATABASE "{{.Resource}}" TO "{{.Role}}";`
+	setGrantSchemaTemplate         = `GRANT {{.Permission}} ON SCHEMA "{{.Resource}}" TO "{{.Role}}";`
+	setGrantTableTemplate          = `GRANT {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
+	setGrantAllTablesTemplate      = `GRANT {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantSequenceTemplate       = `GRANT {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" TO "{{.Role}}";`
+	setGrantAllSequencesTemplate   = `GRANT {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantFunctionTemplate       = `GRANT {{.Permission}} ON FUNCTION "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
+	setGrantAllFunctionsTemplate   = `GRANT {{.Permission}} ON ALL FUNCTIONS IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantProcedureTemplate      = `GRANT {{.Permission}} ON PROCEDURE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
+	setGrantAllProceduresTemplate  = `GRANT {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantRoutineTemplate        = `GRANT {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} TO "{{.Role}}";`
+	setGrantAllRoutinesTemplate    = `GRANT {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" TO "{{.Role}}";`
+	setGrantDomainTemplate         = `GRANT {{.Permission}} ON DOMAIN "{{.Resource}}" TO "{{.Role}}";`
+	setGrantFdwTemplate            = `GRANT {{.Permission}} ON FOREIGN DATA WRAPPER "{{.Resource}}" TO "{{.Role}}";`
+	setGrantForeignServerTemplate  = `GRANT {{.Permission}} ON FOREIGN SERVER "{{.Resource}}" TO "{{.Role}}";`
+	setGrantLanguageTemplate       = `GRANT {{.Permission}} ON LANGUAGE "{{.Resource}}" TO "{{.Role}}";`
+	setGrantLargeObjectTemplate    = `GRANT {{.Permission}} ON LARGE OBJECT {{.Resource}} TO "{{.Role}}";`
+	setGrantParameterTemplate      = `GRANT {{.Permission}} ON PARAMETER "{{.Resource}}" TO "{{.Role}}";`
+	setGrantTablespaceTemplate     = `GRANT {{.Permission}} ON TABLESPACE "{{.Resource}}" TO "{{.Role}}";`
+	setGrantTypeTemplate           = `GRANT {{.Permission}} ON TYPE "{{.Resource}}" TO "{{.Role}}";`
+	setRevokeInstanceTemplate      = `REVOKE "{{.Permission}}" FROM "{{.Role}}";`
+	setRevokeDatabaseTemplate      = `REVOKE {{.Permission}} ON DATABASE "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeSchemaTemplate        = `REVOKE {{.Permission}} ON SCHEMA "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeTableTemplate         = `REVOKE {{.Permission}} ON TABLE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeAllTablesTemplate     = `REVOKE {{.Permission}} ON ALL TABLES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeSequenceTemplate      = `REVOKE {{.Permission}} ON SEQUENCE "{{.Schema}}"."{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeAllSequencesTemplate  = `REVOKE {{.Permission}} ON ALL SEQUENCES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeFunctionTemplate      = `REVOKE {{.Permission}} ON FUNCTION "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
+	setRevokeAllFunctionsTemplate  = `REVOKE {{.Permission}} ON ALL FUNCTIONS IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeProcedureTemplate     = `REVOKE {{.Permission}} ON PROCEDURE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
 	setRevokeAllProceduresTemplate = `REVOKE {{.Permission}} ON ALL PROCEDURES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
-	setRevokeRoutineTemplate = `REVOKE {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
-	setRevokeAllRoutinesTemplate = `REVOKE {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
-	setRevokeDomainTemplate = `REVOKE {{.Permission}} ON DOMAIN "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeFdwTemplate = `REVOKE {{.Permission}} ON FOREIGN DATA WRAPPER "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeRoutineTemplate       = `REVOKE {{.Permission}} ON ROUTINE "{{.Schema}}".{{.Resource}} FROM "{{.Role}}";`
+	setRevokeAllRoutinesTemplate   = `REVOKE {{.Permission}} ON ALL ROUTINES IN SCHEMA "{{.Schema}}" FROM "{{.Role}}";`
+	setRevokeDomainTemplate        = `REVOKE {{.Permission}} ON DOMAIN "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeFdwTemplate           = `REVOKE {{.Permission}} ON FOREIGN DATA WRAPPER "{{.Resource}}" FROM "{{.Role}}";`
 	setRevokeForeignServerTemplate = `REVOKE {{.Permission}} ON FOREIGN SERVER "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeLanguageTemplate = `REVOKE {{.Permission}} ON LANGUAGE "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeLargeObjectTemplate = `REVOKE {{.Permission}} ON LARGE OBJECT {{.Resource}} FROM "{{.Role}}";`
-	setRevokeParameterTemplate = `REVOKE {{.Permission}} ON PARAMETER "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeTablespaceTemplate = `REVOKE {{.Permission}} ON TABLESPACE "{{.Resource}}" FROM "{{.Role}}";`
-	setRevokeTypeTemplate = `REVOKE {{.Permission}} ON TYPE "{{.Resource}}" FROM "{{.Role}}";`
-	setRoleCreateTemplate     = `CREATE ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
-	setRoleUpdateTemplate     = `ALTER ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
-	setRoleDeleteTemplate     = `DROP ROLE "{{.Name}}";`
+	setRevokeLanguageTemplate      = `REVOKE {{.Permission}} ON LANGUAGE "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeLargeObjectTemplate   = `REVOKE {{.Permission}} ON LARGE OBJECT {{.Resource}} FROM "{{.Role}}";`
+	setRevokeParameterTemplate     = `REVOKE {{.Permission}} ON PARAMETER "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeTablespaceTemplate    = `REVOKE {{.Permission}} ON TABLESPACE "{{.Resource}}" FROM "{{.Role}}";`
+	setRevokeTypeTemplate          = `REVOKE {{.Permission}} ON TYPE "{{.Resource}}" FROM "{{.Role}}";`
+	setRoleCreateTemplate          = `CREATE ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
+	setRoleUpdateTemplate          = `ALTER ROLE "{{.Name}}" WITH {{ if .Login }}LOGIN {{else}}NOLOGIN {{end}}{{- if .Inherit }}INHERIT {{else}}NOINHERIT {{end}}{{- if .CreateDb }}CREATEDB {{else}}NOCREATEDB {{end}}{{- if .CreateRole }}CREATEROLE {{else}}NOCREATEROLE {{end}}{{- if .Replication }}REPLICATION {{else}}NOREPLICATION {{end}};`
+	setRoleDeleteTemplate          = `DROP ROLE "{{.Name}}";`
 )
 
 // cleanQuery converts a multi-line, user-readable SQL query into a format that is easier / cleaner
