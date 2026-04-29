@@ -7,11 +7,11 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	postgrestest "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -33,8 +33,9 @@ func createTestContainer(ctx context.Context) (*postgrestest.PostgresContainer, 
 			req.WaitingFor = wait.ForSQL(
 				"5432/tcp",
 				"postgres",
-				func(host string, port nat.Port) string {
-					return fmt.Sprintf("postgres://role:password@%s:%s/test?sslmode=disable", host, port.Port())
+				func(host string, port string) string {
+					port = strings.TrimSuffix(port, "/tcp")
+					return fmt.Sprintf("postgres://role:password@%s:%s/test?sslmode=disable", host, port)
 				},
 			).WithStartupTimeout(90 * time.Second)
 			return nil
