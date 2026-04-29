@@ -277,9 +277,9 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 		err = tempDbClose()
 	}()
 
-	iamUser, err := postgresIamUser(ctx, m.creds)
-	if err != nil {
-		return err
+	iamUser := m.target.user
+	if iamUser == "" {
+		return fmt.Errorf("failed to resolve managed IAM user")
 	}
 
 	userType := iamUserType(m.creds, iamUser)
@@ -392,7 +392,7 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 		if err != nil {
 			return err
 		}
-		if m.creds != nil {
+		if m.creds == nil {
 			m.creds = creds
 		}
 	}
@@ -453,9 +453,9 @@ func (m *managedInstance) getConnection(ctx blackstart.ModuleContext) (*sql.DB, 
 		return nil, fmt.Errorf("failed to get connection identifier: %w", err)
 	}
 
-	username, err = postgresIamUser(ctx, m.creds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find the current user: %w", err)
+	username = m.target.user
+	if username == "" {
+		return nil, fmt.Errorf("failed to resolve managed IAM user")
 	}
 
 	dsn := cloudsqlPostgresIamDsn(dbConnIdentifier, m.target.database, username)
