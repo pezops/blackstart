@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Fix operation decode for scalars from config file (#70) by @mbrancato
+
 ## [0.1.12] - 2026-04-29
 
 ### 🚀 Features
