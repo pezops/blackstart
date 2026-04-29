@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jessevdk/go-flags"
+	"gopkg.in/yaml.v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -436,7 +437,7 @@ func loadOperations(ops []v1alpha1.Operation) ([]blackstart.Operation, error) {
 		for k, v := range op.Inputs {
 			if v.Extra != nil && v.FromDependency == nil {
 				var val any
-				err = json.Unmarshal(v.Extra.Raw, &val)
+				val, err = decodeOperationInputExtra(v.Extra.Raw)
 				if err != nil {
 					return nil, fmt.Errorf(
 						"error unmarshalling input extra field for operation %s input %s: %w", op.Id, k, err,
@@ -451,6 +452,20 @@ func loadOperations(ops []v1alpha1.Operation) ([]blackstart.Operation, error) {
 	}
 	return bOps, nil
 
+}
+
+// decodeOperationInputExtra decodes static operation input data captured in
+// OperationInput.Extra.Raw. The raw bytes can come from YAML or JSON
+// unmarshalling paths, so this attempts JSON first and then falls back to YAML.
+func decodeOperationInputExtra(raw []byte) (any, error) {
+	var val any
+	if err := json.Unmarshal(raw, &val); err == nil {
+		return val, nil
+	}
+	if err := yaml.Unmarshal(raw, &val); err == nil {
+		return val, nil
+	}
+	return nil, fmt.Errorf("unable to decode raw input value")
 }
 
 // loadK8sApiSchemes initializes the Kubernetes API schemes and stores them in the context.
