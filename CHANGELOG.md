@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Fix user from CloudSQL credential setup (#71) by @mbrancato
+
 ## [0.1.13] - 2026-04-29
 
 ### 🐛 Bug Fixes
