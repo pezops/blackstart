@@ -23,6 +23,16 @@ Blackstart supports command-line flags and equivalent environment variables.
 | `--controller-resync-interval`   | `BLACKSTART_CONTROLLER_RESYNC_INTERVAL`   | How often controller mode refreshes workflow resources.                                   |
 | `--queue-wait-warning-threshold` | `BLACKSTART_QUEUE_WAIT_WARNING_THRESHOLD` | Warn when queued workflows wait longer than this threshold.                               |
 
+### Workflow File Sources
+
+`BLACKSTART_WORKFLOW_FILE` supports these source formats:
+
+- local file path, for example `./workflow.yaml`
+- environment indirection, for example `env:BLACKSTART_WORKFLOW_YAML`
+- Google Cloud Storage object, for example `gs://my-bucket/path/workflow.yaml`
+
+When using `gs://...`, the runtime identity must be able to read the object (`storage.objects.get`).
+
 ### Namespace Behavior
 
 - Empty `BLACKSTART_K8S_NAMESPACE`: query all namespaces.

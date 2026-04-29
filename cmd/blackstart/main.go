@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jessevdk/go-flags"
-	"gopkg.in/yaml.v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -133,7 +132,7 @@ func runWorkflowFromFile(ctx context.Context) (err error) {
 	logger := loggerFromCtx(ctx)
 
 	var wf *blackstart.Workflow
-	wf, err = loadWorkflowFromFile(ctx)
+	wf, err = loadWorkflowFromSource(ctx)
 	if err != nil {
 		err = fmt.Errorf("error loading workflow from file: %w", err)
 		return err
@@ -360,40 +359,49 @@ func workflowFromK8sResource(kwf *v1alpha1.Workflow) (*blackstart.Workflow, erro
 
 // loadWorkflowFromFile reads a workflow definition from a file and converts it to a core Workflow.
 func loadWorkflowFromFile(ctx context.Context) (*blackstart.Workflow, error) {
-	var err error
-
 	logger := loggerFromCtx(ctx)
 	config := configFromCtx(ctx)
 
-	// Load workflow from file
+	// Load workflow from a local file path only.
 	logger.Info("loading workflow file", "file", config.WorkflowFile)
-	var workflowConfig []byte
-	workflowConfig, err = os.ReadFile(config.WorkflowFile)
+	workflowConfig, err := os.ReadFile(config.WorkflowFile)
 	if err != nil {
-		err = fmt.Errorf("error reading workflow file: %w", err)
-		return nil, err
+		return nil, fmt.Errorf("error reading workflow file: %w", err)
 	}
+	return workflowFromConfigBytes(workflowConfig)
+}
 
-	var apiWf v1alpha1.WorkflowConfigFile
-	err = yaml.Unmarshal(workflowConfig, &apiWf)
-	if err != nil {
-		err = fmt.Errorf("error unmarshalling workflow: %w", err)
-		return nil, err
-	}
+// loadWorkflowFromEnv reads workflow YAML from an env var source
+// BLACKSTART_WORKFLOW_FILE=env:<ENV_VAR_NAME>.
+func loadWorkflowFromEnv(ctx context.Context) (*blackstart.Workflow, error) {
+	logger := loggerFromCtx(ctx)
+	config := configFromCtx(ctx)
+	logger.Info("loading workflow from environment", "source", config.WorkflowFile)
 
-	var wf blackstart.Workflow
-	wf.Name = apiWf.Name
-	wf.Description = apiWf.Description
-	wf.ReconcileInterval, err = parseReconcileInterval(apiWf.ReconcileInterval)
+	name := strings.TrimSpace(strings.TrimPrefix(config.WorkflowFile, "env:"))
+	workflowConfig, err := workflowConfigBytesFromEnv(name)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing reconcile interval for workflow %s: %w", wf.Name, err)
+		return nil, fmt.Errorf("error loading workflow from environment source: %w", err)
 	}
-	wf.Operations, err = loadOperations(apiWf.Operations)
+	return workflowFromConfigBytes(workflowConfig)
+}
+
+// loadWorkflowFromGCS reads workflow YAML from a GCS source
+// BLACKSTART_WORKFLOW_FILE=gs://<bucket>/<object>.
+func loadWorkflowFromGCS(ctx context.Context) (*blackstart.Workflow, error) {
+	logger := loggerFromCtx(ctx)
+	config := configFromCtx(ctx)
+	logger.Info("loading workflow from GCS", "source", config.WorkflowFile)
+
+	bucket, object, err := parseGCSWorkflowSource(config.WorkflowFile)
 	if err != nil {
-		return nil, fmt.Errorf("error loading operations for workflow %s: %w", wf.Name, err)
+		return nil, fmt.Errorf("error parsing GCS workflow source: %w", err)
 	}
-	wf.Source = apiWf
-	return &wf, nil
+	workflowConfig, err := workflowConfigBytesFromGCS(ctx, bucket, object)
+	if err != nil {
+		return nil, fmt.Errorf("error loading workflow from GCS source: %w", err)
+	}
+	return workflowFromConfigBytes(workflowConfig)
 }
 
 func parseReconcileInterval(raw string) (time.Duration, error) {
