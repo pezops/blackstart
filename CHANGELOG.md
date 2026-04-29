@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### 🚀 Features
+
+- Add support for loading config from GCS or an environment variable (#68) by @mbrancato
+
 ## [0.1.11] - 2026-04-21
 
 ### 🚀 Features
