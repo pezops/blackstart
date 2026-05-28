@@ -478,7 +478,7 @@ func matchesType(v any, t reflect.Type) bool {
 
 	// If target is a pointer type, check if the value type matches the pointer's element type
 	// This allows bool to be assignable to *bool, string to *string, etc.
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		elemType := t.Elem()
 		if vt == elemType || vt.AssignableTo(elemType) || vt.ConvertibleTo(elemType) {
 			return true
