@@ -89,6 +89,7 @@ jobs:
         id: ko
         env:
           KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.REPO_NAME }}
+          VERSION: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
           IMAGE_REF=$(ko build --bare \
