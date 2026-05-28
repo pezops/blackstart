@@ -6,6 +6,7 @@
 
 - Fix user from CloudSQL credential setup (#71) by @mbrancato
 - Add `userinfo.email` scope to GCP access token (#72) by @mbrancato
+- Version missing in rebuild (#74) by @mbrancato
 
 ### ⚙️ Miscellaneous Tasks
 
