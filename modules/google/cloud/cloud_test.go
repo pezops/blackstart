@@ -197,6 +197,21 @@ func TestIamUser_EmptyJSONFallsBackToTokenInspection(t *testing.T) {
 	require.Equal(t, "wi-principal@example.com", got)
 }
 
+func TestIamUser_EmptyTokenEmailReturnsError(t *testing.T) {
+	creds := &google.Credentials{}
+
+	got, err := iamUserWithResolver(
+		context.Background(),
+		creds,
+		func(_ context.Context, _ *google.Credentials) (string, error) {
+			return "", nil
+		},
+	)
+	require.Error(t, err)
+	require.Empty(t, got)
+	require.Contains(t, err.Error(), "failed to resolve current IAM identity from provided credentials")
+}
+
 func TestSanitizeGoogleAPIError_UsesErrorDescriptionFromBody(t *testing.T) {
 	err := sanitizeGoogleAPIError(
 		"token info",

@@ -90,7 +90,11 @@ func extractGoogleAPIErrorDescription(body string) string {
 // 2. A JSON file in a well-known location created by the gcloud command-line tool.
 // 3. Credentials from the metadata server on GCE, GKE, App Engine, Cloud Run, and others.
 func DefaultCredentials(ctx context.Context) (*google.Credentials, error) {
-	adc, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	adc, err := google.FindDefaultCredentials(
+		ctx,
+		"https://www.googleapis.com/auth/cloud-platform",
+		"https://www.googleapis.com/auth/userinfo.email", // This is required to read the email from the access token
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -170,5 +174,13 @@ func iamUserWithResolver(
 		}
 	}
 
-	return tokenEmailResolver(ctx, creds)
+	user, err := tokenEmailResolver(ctx, creds)
+	if err != nil {
+		return "", err
+	}
+	user = strings.TrimSpace(user)
+	if user != "" {
+		return user, nil
+	}
+	return "", fmt.Errorf("failed to resolve current IAM identity from provided credentials")
 }
