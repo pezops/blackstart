@@ -7,6 +7,10 @@
 - Fix user from CloudSQL credential setup (#71) by @mbrancato
 - Add `userinfo.email` scope to GCP access token (#72) by @mbrancato
 
+### ⚙️ Miscellaneous Tasks
+
+- Add automatic rebuild of the latest release (#73) by @mbrancato
+
 ## [0.1.13] - 2026-04-29
 
 ### 🐛 Bug Fixes
