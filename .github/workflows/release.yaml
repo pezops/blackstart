@@ -8,6 +8,7 @@ env:
   REGISTRY: ghcr.io
   REPO_NAME: ${{ github.repository }}
   RELEASE_VERSION: ${{ github.event.release.tag_name }}
+  GOTOOLCHAIN: local
 
 jobs:
   ko-build-publish:
@@ -29,10 +30,22 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
 
+      - name: Resolve Go patch series
+        id: go-version
+        run: |
+          set -euo pipefail
+          GO_DIRECTIVE=$(awk '$1 == "go" { print $2; exit }' go.mod)
+          if ! [[ "${GO_DIRECTIVE}" =~ ^([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
+            echo "Unsupported go directive: ${GO_DIRECTIVE}"
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.x" >> "$GITHUB_OUTPUT"
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: ${{ steps.go-version.outputs.version }}
+          check-latest: true
 
       - name: Setup ko
         uses: ko-build/setup-ko@v0.9

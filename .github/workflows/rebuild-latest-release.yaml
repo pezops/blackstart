@@ -1,0 +1,142 @@
+name: Rebuild Latest Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * 2"
+
+env:
+  REGISTRY: ghcr.io
+  REPO_NAME: ${{ github.repository }}
+  GOTOOLCHAIN: local
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: rebuild-latest-release
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    name: Rebuild Latest Release Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Resolve latest release tag
+        id: latest-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')
+          if [[ -z "${TAG}" || "${TAG}" == "null" ]]; then
+            echo "No latest release tag found."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Latest release tag: ${TAG}"
+
+      - name: Checkout latest release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.latest-release.outputs.tag }}
+
+      - name: Resolve Go patch series
+        id: go-version
+        run: |
+          set -euo pipefail
+          GO_DIRECTIVE=$(awk '$1 == "go" { print $2; exit }' go.mod)
+          if ! [[ "${GO_DIRECTIVE}" =~ ^([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
+            echo "Unsupported go directive: ${GO_DIRECTIVE}"
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.x" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          check-latest: true
+          cache: true
+
+      - name: Verify dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Run tests
+        run: go test -count 1 -v ./...
+
+      - name: Setup ko
+        uses: ko-build/setup-ko@v0.9
+
+      - name: Prepare version tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ steps.latest-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          echo "tag=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Tag: ${VERSION}"
+
+      - name: Build and publish image with ko
+        id: ko
+        env:
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.REPO_NAME }}
+        run: |
+          set -euo pipefail
+          IMAGE_REF=$(ko build --bare \
+            --platform=all \
+            --tags "${{ steps.version.outputs.tag }}" \
+            ./cmd/blackstart)
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve image digest
+        id: digest
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${{ steps.ko.outputs.image_ref }}"
+          if [[ "${IMAGE_REF}" != *@sha256:* ]]; then
+            echo "ko image reference did not include a digest: ${IMAGE_REF}"
+            exit 1
+          fi
+          DIGEST="${IMAGE_REF##*@}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "full_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "Image digest: ${DIGEST}"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+
+      - name: Sign image with Cosign
+        run: cosign sign --yes "${{ steps.digest.outputs.full_ref }}"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.REPO_NAME }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Tag rebuilt digest as latest
+        run: |
+          set -euo pipefail
+          IMAGE_REPO="${{ env.REGISTRY }}/${{ env.REPO_NAME }}"
+          SOURCE_REF="${IMAGE_REPO}@${{ steps.digest.outputs.digest }}"
+          TARGET_REF="${IMAGE_REPO}:latest"
+
+          docker buildx imagetools create --tag "${TARGET_REF}" "${SOURCE_REF}"
+          echo "Tagged ${TARGET_REF} -> ${SOURCE_REF}"

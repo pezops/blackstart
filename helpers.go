@@ -67,7 +67,7 @@ func coerceValue[T any](value any) (T, error) {
 	targetType := reflect.TypeFor[T]()
 
 	// Special case: allow bool to satisfy *bool inputs.
-	if targetType.Kind() == reflect.Ptr && targetType.Elem().Kind() == reflect.Bool {
+	if targetType.Kind() == reflect.Pointer && targetType.Elem().Kind() == reflect.Bool {
 		if b, ok := value.(bool); ok {
 			ptr := &b
 			return any(ptr).(T), nil
@@ -149,7 +149,7 @@ func validateRequiredValue[T any](value T) error {
 		}
 	default:
 		rv := reflect.ValueOf(v)
-		if rv.IsValid() && rv.Kind() == reflect.Ptr && rv.IsNil() {
+		if rv.IsValid() && rv.Kind() == reflect.Pointer && rv.IsNil() {
 			return fmt.Errorf("value cannot be nil")
 		}
 	}
