@@ -7,12 +7,12 @@ configuration, workflows, and secure runtime patterns.
 
 ## Guide Sections
 
-- [Getting Started](../getting-started.md): install quickly and run a first workflow.
-- [Deploy](./deploy.md): Helm and manifest deployment patterns.
-- [Configuration](./configuration.md): runtime settings, namespace behavior, and chart values.
-- [Workflows](./workflows.md): workflow model, operation syntax, and input/output wiring.
-- [Eventual Consistency](./eventual-consistency.md): how periodic reconciliation behaves over time.
-- [Secure Practices](./secure-practices.md): recommended runtime patterns and required security
+- [Getting Started](../getting-started.md): Install quickly and run your first workflow.
+- [Deploy](./deploy.md): Helm, manifest, and Terraform deployment patterns.
+- [Configuration](./configuration.md): Runtime settings, namespace behavior, and chart values.
+- [Workflows](./workflows.md): Workflow model, operation syntax, and input/output wiring.
+- [Eventual Consistency](./eventual-consistency.md): How periodic reconciliation behaves over time.
+- [Secure Practices](./secure-practices.md): Recommended runtime patterns and required security
   constraints for module development.
 
 ## Module Documentation

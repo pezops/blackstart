@@ -2,9 +2,11 @@
 
 # Deploy
 
-Blackstart is designed to be run periodically as a Kubernetes controller. The default Helm
+Blackstart can run as a Kubernetes controller or as a scheduled one-shot job. The default Helm
 installation runs Blackstart in a single-replica Deployment and continuously reconciles `Workflow`
-resources on each workflow's configured interval.
+resources on each workflow's configured interval. For Google Cloud deployments that do not need a
+Kubernetes controller, the Terraform module deploys Blackstart as a Cloud Run Job triggered by Cloud
+Scheduler.
 
 ## Kubernetes
 
@@ -122,3 +124,70 @@ resources.
 
 The CronJob manifest is a legacy/optional run mode. In most deployments, running Blackstart as a
 controller is preferred.
+
+## Terraform
+
+### Google Cloud Run Job
+
+Use the `cloud-run-job` submodule from the `pezops/blackstart/google` module to deploy Blackstart as
+a Google Cloud Run Job. This deployment pattern creates a Cloud Run Job for each Blackstart run and
+a Cloud Scheduler trigger for periodic execution.
+
+Registry documentation:
+
+- [Terraform Registry](https://registry.terraform.io/modules/pezops/blackstart/google/latest/submodules/cloud-run-job)
+- [OpenTofu Registry](https://search.opentofu.org/module/pezops/blackstart/google/latest/submodule/cloud-run-job)
+
+This option is a good fit when:
+
+- Native GCP resources are the primary targets.
+- Blackstart reconciliation should run on a schedule.
+- The workflow config is stored with the Terraform or in Google Cloud Storage.
+- The job needs Google Cloud service account permissions and optional direct VPC egress.
+
+Example using a workflow YAML object in Google Cloud Storage:
+
+```hcl
+module "blackstart_job" {
+  source  = "pezops/blackstart/google//modules/cloud-run-job"
+  version = "0.0.0"
+
+  project_id = var.project_id
+  region     = var.region
+  name       = var.name
+
+  image_registry   = google_artifact_registry_repository.ghcr_remote.registry_uri
+  image_repository = "pezops/blackstart"
+  image_tag        = "0.1.13"
+
+  schedule = var.schedule
+
+  workflow_source     = "gcs"
+  workflow_gcs_bucket = google_storage_bucket.workflow.name
+  workflow_gcs_object = google_storage_bucket_object.workflow.name
+
+  vpc_subnetwork = local.subnetwork_ref
+
+  depends_on = [
+    google_artifact_registry_repository.ghcr_remote
+  ]
+}
+```
+
+The `cloud-run-job` submodule supports two workflow source modes:
+
+- `workflow_source = "env"` stores workflow YAML in an environment variable and points
+  `BLACKSTART_WORKFLOW_FILE` at that variable.
+- `workflow_source = "gcs"` points `BLACKSTART_WORKFLOW_FILE` at
+  `gs://<workflow_gcs_bucket>/<workflow_gcs_object>`.
+
+For `gcs` mode, grant the Cloud Run runtime service account read access to the workflow object. The
+runtime service account also needs whatever permissions the workflow modules require. For example, a
+workflow that configures Cloud SQL users needs appropriate Cloud SQL IAM permissions.
+
+The `cloud-run-job` submodule configures the Cloud Scheduler caller permission needed to execute the
+Cloud Run Job. If you provide your own scheduler or runtime service accounts, make sure those
+identities have the required IAM bindings.
+
+Direct VPC egress is configured with `vpc_subnetwork` and optional network tags. Use this when the
+workflow needs private access to resources such as Cloud SQL private IP endpoints.
