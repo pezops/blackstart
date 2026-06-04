@@ -22,8 +22,8 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.RELEASE_PLEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          client-id: ${{ secrets.PEZOPS_RELEASE_DISPENSER_CLIENT_ID }}
+          private-key: ${{ secrets.PEZOPS_RELEASE_DISPENSER_PRIVATE_KEY }}
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write

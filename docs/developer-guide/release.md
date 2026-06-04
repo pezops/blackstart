@@ -36,20 +36,6 @@ chore: prepare release
 Release-As: 0.2.0
 ```
 
-## Release Automation Setup
-
-Release Please authenticates as a dedicated GitHub App so its pull requests trigger normal CI.
-Install the App on this repository with these repository permissions:
-
-- Contents: read and write
-- Issues: read and write
-- Pull requests: read and write
-
-Configure these repository Actions values:
-
-- Variable `RELEASE_PLEASE_APP_CLIENT_ID`: GitHub App client ID
-- Secret `RELEASE_PLEASE_APP_PRIVATE_KEY`: GitHub App private key
-
 ## Notes
 
 - Releases use semantic tags with a `v` prefix, for example `v0.4.0`.
