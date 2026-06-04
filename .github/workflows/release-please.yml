@@ -1,0 +1,36 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Prepare or Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create releaser app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.PEZOPS_RELEASE_DISPENSER_CLIENT_ID }}
+          private-key: ${{ secrets.PEZOPS_RELEASE_DISPENSER_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Run Release Please
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
