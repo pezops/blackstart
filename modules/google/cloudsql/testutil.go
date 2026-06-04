@@ -19,6 +19,8 @@ import (
 	"google.golang.org/api/sqladmin/v1"
 )
 
+const mysqlLiveModulePackage = modulePackage + ".mysql"
+
 type testError struct {
 	message string
 }
@@ -34,6 +36,7 @@ type fakeCloudSQLAdmin struct {
 	instance *sqladmin.DatabaseInstance
 	users    []*sqladmin.User
 	inserted []*sqladmin.User
+	deleted  []url.Values
 	requests []string
 	fail     map[string]int
 	mu       sync.Mutex
@@ -117,6 +120,7 @@ func (f *fakeCloudSQLAdmin) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.users = append(f.users, &user)
 		writeJSON(f.t, w, &sqladmin.Operation{})
 	case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/instances/instance/users"):
+		f.deleted = append(f.deleted, r.URL.Query())
 		f.deleteUser(r.URL.Query())
 		writeJSON(f.t, w, &sqladmin.Operation{})
 	default:

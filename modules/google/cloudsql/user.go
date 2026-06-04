@@ -302,12 +302,16 @@ func (c *user) user(ctx blackstart.ModuleContext) (*sqladmin.User, error) {
 	// create the user resource
 	sqlUser := &sqladmin.User{
 		Name: username,
-		Host: "%",
 		Type: c.target.userType,
 	}
 
-	if c.target.password != "" && c.target.userType == userBuiltIn {
-		sqlUser.Password = c.target.password
+	if c.target.userType == userBuiltIn {
+		if c.target.engine == "MYSQL" {
+			sqlUser.Host = "%"
+		}
+		if c.target.password != "" {
+			sqlUser.Password = c.target.password
+		}
 	}
 
 	return sqlUser, nil
@@ -391,6 +395,9 @@ func (c *user) deleteUser(ctx context.Context, user *sqladmin.User) error {
 	// Delete the user
 	deleteCall := c.sqlService.Users.Delete(c.target.project, c.target.instance)
 	deleteCall.Name(user.Name)
+	if c.target.engine == "MYSQL" && c.target.userType == userBuiltIn {
+		deleteCall.Host(user.Host)
+	}
 	result, err := deleteCall.Context(ctx).Do()
 
 	if err != nil {
