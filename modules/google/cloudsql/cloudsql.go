@@ -2,6 +2,7 @@ package cloudsql
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,30 @@ import (
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/modules/google/cloud"
 )
+
+// cloudSQLRuntime provides injectable Cloud SQL Admin API and database connection dependencies.
+type cloudSQLRuntime struct {
+	newSQLAdminService func(context.Context) (*sqladmin.Service, error)
+	openDB             func(string, string) (*sql.DB, error)
+}
+
+// defaultCloudSQLRuntime creates the production Cloud SQL runtime.
+func defaultCloudSQLRuntime() *cloudSQLRuntime {
+	return &cloudSQLRuntime{
+		newSQLAdminService: func(ctx context.Context) (*sqladmin.Service, error) {
+			return sqladmin.NewService(ctx, option.WithUserAgent(blackstart.UserAgent))
+		},
+		openDB: sql.Open,
+	}
+}
+
+// cloudSQLRuntimeOrDefault returns runtime when configured, or the production runtime otherwise.
+func cloudSQLRuntimeOrDefault(runtime *cloudSQLRuntime) *cloudSQLRuntime {
+	if runtime == nil {
+		return defaultCloudSQLRuntime()
+	}
+	return runtime
+}
 
 const (
 	modulePackage = "google.cloudsql"
@@ -123,8 +148,13 @@ func init() {
 	}
 }
 
+// ErrRegionNotProvidedNotFound indicates a region was neither provided nor discovered.
 var ErrRegionNotProvidedNotFound = errors.New("region not provided and not found")
+
+// ErrProjectNotProvidedNotFound indicates a project was neither provided nor discovered.
 var ErrProjectNotProvidedNotFound = errors.New("project not provided and not found")
+
+// cloudSQLServiceAccountIdentityPattern matches full and Cloud SQL-normalized service-account identities.
 var cloudSQLServiceAccountIdentityPattern = regexp.MustCompile(
 	`^[^@\s]+@[^@\s]+\.iam(?:\.gserviceaccount\.com)?$`,
 )
@@ -309,6 +339,7 @@ func mysqlIamUser(iamIdentity string) (string, error) {
 	return username, nil
 }
 
+// instanceEngine returns the normalized database engine for a Cloud SQL database version.
 func instanceEngine(databaseVersion string) string {
 	version := strings.ToUpper(strings.TrimSpace(databaseVersion))
 	switch {
@@ -323,16 +354,19 @@ func instanceEngine(databaseVersion string) string {
 	}
 }
 
+// mysqlManagedInstanceSupported reports whether a MySQL version supports managed-instance role administration.
 func mysqlManagedInstanceSupported(databaseVersion string) bool {
 	major, _, err := mysqlVersionNumbers(databaseVersion)
 	return err == nil && major >= 8
 }
 
+// mysqlIamUserSupported reports whether a MySQL version supports IAM database users.
 func mysqlIamUserSupported(databaseVersion string) bool {
 	major, minor, err := mysqlVersionNumbers(databaseVersion)
 	return err == nil && (major > 5 || major == 5 && minor >= 7)
 }
 
+// mysqlVersionNumbers parses the major and minor components from a Cloud SQL MySQL database version.
 func mysqlVersionNumbers(databaseVersion string) (int, int, error) {
 	parts := strings.Split(strings.ToUpper(strings.TrimSpace(databaseVersion)), "_")
 	if len(parts) < 3 || parts[0] != "MYSQL" {
@@ -349,6 +383,7 @@ func mysqlVersionNumbers(databaseVersion string) (int, int, error) {
 	return major, minor, nil
 }
 
+// instanceIamAuthenticationEnabled reports whether an engine-specific IAM authentication flag is enabled.
 func instanceIamAuthenticationEnabled(instance *sqladmin.DatabaseInstance) bool {
 	if instance == nil || instance.Settings == nil {
 		return false
@@ -410,6 +445,7 @@ func cloudsqlPostgresBuiltInDsn(instanceIdentifier, dbname, username, password s
 	)
 }
 
+// cloudsqlMySQLDsn returns a DSN for a registered Cloud SQL MySQL driver.
 func cloudsqlMySQLDsn(driverNetwork, instanceIdentifier, dbname, username, password string) string {
 	cfg := gomysql.NewConfig()
 	cfg.User = username

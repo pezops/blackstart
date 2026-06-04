@@ -3,17 +3,22 @@ package cloudsql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"os"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/cloudsqlconn"
 	"cloud.google.com/go/cloudsqlconn/postgres/pgxv5"
+	"github.com/DATA-DOG/go-sqlmock"
 	gomysql "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/modules/google/cloud"
@@ -276,9 +281,11 @@ func TestIsManagedInstanceBootstrapConnectionError(t *testing.T) {
 		},
 	}
 	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tt.want, isManagedInstanceBootstrapConnectionError(tt.err, tt.engine))
-		})
+		t.Run(
+			name, func(t *testing.T) {
+				assert.Equal(t, tt.want, isManagedInstanceBootstrapConnectionError(tt.err, tt.engine))
+			},
+		)
 	}
 }
 
@@ -301,31 +308,611 @@ func TestManagedInstanceMySQLDrivers(t *testing.T) {
 	}
 
 	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			op := blackstart.Operation{
-				Inputs: map[string]blackstart.Input{
-					inputConnectionType: blackstart.NewInputFromValue(tt.connectionType),
-				},
-				Module: "google_cloudsql_managed_instance",
-			}
-			ctx := blackstart.OpContext(context.Background(), &op)
-			m := managedInstance{target: &connectionConfig{engine: "MYSQL"}}
+		t.Run(
+			name, func(t *testing.T) {
+				op := blackstart.Operation{
+					Inputs: map[string]blackstart.Input{
+						inputConnectionType: blackstart.NewInputFromValue(tt.connectionType),
+					},
+					Module: "google_cloudsql_managed_instance",
+				}
+				ctx := blackstart.OpContext(context.Background(), &op)
+				m := managedInstance{target: &connectionConfig{engine: "MYSQL"}}
 
-			iamDriver, err := m.getDriver(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, tt.iamDriver, iamDriver)
+				iamDriver, err := m.getDriver(ctx)
+				require.NoError(t, err)
+				assert.Equal(t, tt.iamDriver, iamDriver)
 
-			builtinDriver, err := m.getBuiltinDriver(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, tt.builtinDriver, builtinDriver)
-		})
+				builtinDriver, err := m.getBuiltinDriver(ctx)
+				require.NoError(t, err)
+				assert.Equal(t, tt.builtinDriver, builtinDriver)
+			},
+		)
 	}
 }
 
-type testError struct {
-	message string
+// TestManagedInstanceValidate verifies static input validation and permits runtime inputs.
+func TestManagedInstanceValidate(t *testing.T) {
+	tests := map[string]struct {
+		configure func(*blackstart.Operation)
+		wantErr   string
+	}{
+		"valid": {
+			configure: func(*blackstart.Operation) {},
+		},
+		"valid lowercase connection type": {
+			configure: func(op *blackstart.Operation) {
+				op.Inputs[inputConnectionType] = blackstart.NewInputFromValue("public_ip")
+			},
+		},
+		"runtime instance skips static validation": {
+			configure: func(op *blackstart.Operation) {
+				op.Inputs[inputInstance] = blackstart.NewInputFromDep("create-instance", "name")
+			},
+		},
+		"missing instance": {
+			configure: func(op *blackstart.Operation) {
+				delete(op.Inputs, inputInstance)
+			},
+			wantErr: "missing required parameter: instance",
+		},
+		"invalid instance type": {
+			configure: func(op *blackstart.Operation) {
+				op.Inputs[inputInstance] = blackstart.NewInputFromValue(map[string]string{"name": "instance"})
+			},
+			wantErr: "invalid instance:",
+		},
+		"empty instance": {
+			configure: func(op *blackstart.Operation) {
+				op.Inputs[inputInstance] = blackstart.NewInputFromValue("")
+			},
+			wantErr: "invalid instance: value cannot be empty",
+		},
+		"invalid connection type value": {
+			configure: func(op *blackstart.Operation) {
+				op.Inputs[inputConnectionType] = blackstart.NewInputFromValue("DIRECT")
+			},
+			wantErr: "invalid connection_type: DIRECT - must be one of: PUBLIC_IP, PRIVATE_IP",
+		},
+		"invalid connection type type": {
+			configure: func(op *blackstart.Operation) {
+				op.Inputs[inputConnectionType] = blackstart.NewInputFromValue(map[string]string{"type": "PUBLIC_IP"})
+			},
+			wantErr: "invalid connection_type:",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				op := testManagedInstanceOperation("person@example.com")
+				tt.configure(&op)
+
+				err := (&managedInstance{}).Validate(op)
+				if tt.wantErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.ErrorContains(t, err, tt.wantErr)
+			},
+		)
+	}
 }
 
-func (e *testError) Error() string {
-	return e.message
+// TestManagedInstanceCheckWithMocks verifies managed-role checks for PostgreSQL and MySQL.
+func TestManagedInstanceCheckWithMocks(t *testing.T) {
+	tests := map[string]struct {
+		version      string
+		userName     string
+		doesNotExist bool
+		roleResult   int
+		noRoleRow    bool
+		want         bool
+	}{
+		"postgres managed": {
+			version:    "POSTGRES_17",
+			userName:   "person@example.com",
+			roleResult: 1,
+			want:       true,
+		},
+		"postgres unmanaged": {
+			version:   "POSTGRES_17",
+			userName:  "person@example.com",
+			noRoleRow: true,
+		},
+		"mysql managed": {
+			version:    "MYSQL_8_4",
+			userName:   "person@example.com",
+			roleResult: 1,
+			want:       true,
+		},
+		"mysql unmanaged satisfies does not exist": {
+			version:      "MYSQL_8_4",
+			userName:     "person@example.com",
+			doesNotExist: true,
+			want:         true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, tt.version)
+				opener := newQueuedDBOpener(t)
+				driver, dsn, roleQuery := expectedManagedConnection(tt.version, tt.userName)
+				_, mock := opener.expect(driver, dsn)
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(1))
+				roleExpectation := mock.ExpectQuery(regexp.QuoteMeta(roleQuery))
+				if tt.noRoleRow {
+					roleExpectation.WillReturnError(sql.ErrNoRows)
+				} else {
+					roleExpectation.WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(tt.roleResult))
+				}
+				mock.ExpectClose()
+
+				op := testManagedInstanceOperation(tt.userName)
+				op.DoesNotExist = tt.doesNotExist
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := &managedInstance{
+					creds:   &google.Credentials{ProjectID: "project"},
+					runtime: api.runtime(opener.open),
+				}
+				got, err := module.Check(ctx)
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+				require.NoError(t, module.Close())
+				require.NoError(t, mock.ExpectationsWereMet())
+				opener.verify()
+			},
+		)
+	}
+}
+
+// TestManagedInstanceCheckBootstrapAuthenticationFailure verifies bootstrap authentication misses.
+func TestManagedInstanceCheckBootstrapAuthenticationFailure(t *testing.T) {
+	for _, doesNotExist := range []bool{false, true} {
+		t.Run(
+			"doesNotExist="+strconv.FormatBool(doesNotExist), func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, "MYSQL_8_4")
+				opener := newQueuedDBOpener(t)
+				driver, dsn, _ := expectedManagedConnection("MYSQL_8_4", "person@example.com")
+				_, mock := opener.expect(driver, dsn)
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).WillReturnError(&gomysql.MySQLError{Number: 1045})
+
+				op := testManagedInstanceOperation("person@example.com")
+				op.DoesNotExist = doesNotExist
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := &managedInstance{
+					creds:   &google.Credentials{ProjectID: "project"},
+					runtime: api.runtime(opener.open),
+				}
+				got, err := module.Check(ctx)
+				require.NoError(t, err)
+				require.Equal(t, doesNotExist, got)
+				require.NoError(t, mock.ExpectationsWereMet())
+			},
+		)
+	}
+}
+
+// TestManagedInstanceCheckErrors verifies errors returned after a successful setup.
+func TestManagedInstanceCheckErrors(t *testing.T) {
+	t.Run(
+		"role query failure", func(t *testing.T) {
+			api := newFakeCloudSQLAdmin(t, "POSTGRES_17")
+			opener := newQueuedDBOpener(t)
+			driver, dsn, roleQuery := expectedManagedConnection("POSTGRES_17", "person@example.com")
+			_, mock := opener.expect(driver, dsn)
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).
+				WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(1))
+			mock.ExpectQuery(regexp.QuoteMeta(roleQuery)).WillReturnError(errors.New("role query failed"))
+			mock.ExpectClose()
+
+			op := testManagedInstanceOperation("person@example.com")
+			ctx := blackstart.OpContext(context.Background(), &op)
+			module := &managedInstance{
+				creds:   &google.Credentials{ProjectID: "project"},
+				runtime: api.runtime(opener.open),
+			}
+			_, err := module.Check(ctx)
+			require.ErrorContains(
+				t, err,
+				"failed to check if user is a member of cloudsqlsuperuser role: "+
+					"failed to check if user is a member of cloudsqlsuperuser role: role query failed",
+			)
+			require.NoError(t, mock.ExpectationsWereMet())
+		},
+	)
+
+	t.Run(
+		"duplicate connection output", func(t *testing.T) {
+			api := newFakeCloudSQLAdmin(t, "POSTGRES_17")
+			opener := newQueuedDBOpener(t)
+			driver, dsn, roleQuery := expectedManagedConnection("POSTGRES_17", "person@example.com")
+			_, mock := opener.expect(driver, dsn)
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).
+				WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(1))
+			mock.ExpectQuery(regexp.QuoteMeta(roleQuery)).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+			mock.ExpectClose()
+
+			op := testManagedInstanceOperation("person@example.com")
+			ctx := blackstart.OpContext(context.Background(), &op)
+			require.NoError(t, ctx.Output(outputConnection, "existing"))
+			module := &managedInstance{
+				creds:   &google.Credentials{ProjectID: "project"},
+				runtime: api.runtime(opener.open),
+			}
+			got, err := module.Check(ctx)
+			require.True(t, got)
+			require.EqualError(t, err, "output key already exists: connection")
+			require.NoError(t, mock.ExpectationsWereMet())
+		},
+	)
+}
+
+// TestManagedInstanceSetMySQLWithMocks verifies the complete MySQL management workflow.
+func TestManagedInstanceSetMySQLWithMocks(t *testing.T) {
+	api := newFakeCloudSQLAdmin(t, "MYSQL_8_4")
+	opener := newQueuedDBOpener(t)
+	_, tempMock := opener.expectContaining(
+		sqlDriverMySQL,
+		"blackstart:",
+		"@cloudsql-mysql(project:us-central1:instance)/mysql",
+	)
+	tempMock.ExpectExec(regexp.QuoteMeta("GRANT `cloudsqlsuperuser` TO `person`@`%` WITH ADMIN OPTION")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	tempMock.ExpectExec(regexp.QuoteMeta("SET DEFAULT ROLE ALL TO `person`@`%`")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	tempMock.ExpectClose()
+
+	driver, dsn, _ := expectedManagedConnection("MYSQL_8_4", "person@example.com")
+	_, managedMock := opener.expect(driver, dsn)
+	managedMock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(1))
+	managedMock.ExpectClose()
+
+	op := testManagedInstanceOperation("person@example.com")
+	ctx := blackstart.OpContext(context.Background(), &op)
+	module := &managedInstance{
+		creds:   &google.Credentials{ProjectID: "project"},
+		runtime: api.runtime(opener.open),
+	}
+	require.NoError(t, module.Set(ctx))
+	require.NoError(t, module.Close())
+	require.NoError(t, tempMock.ExpectationsWereMet())
+	require.NoError(t, managedMock.ExpectationsWereMet())
+	opener.verify()
+
+	require.Equal(t, 2, api.requestCount("POST", "/users"))
+	require.Equal(t, 1, api.requestCount("DELETE", "/users"))
+	require.Len(t, api.users, 1)
+	require.Equal(t, "person", api.users[0].Name)
+	require.Equal(t, "person@example.com", api.users[0].IamEmail)
+}
+
+// TestManagedInstanceSetDoesNotExistRevokesWithoutDeletingIAMUser verifies unmanagement behavior.
+func TestManagedInstanceSetDoesNotExistRevokesWithoutDeletingIAMUser(t *testing.T) {
+	api := newFakeCloudSQLAdmin(t, "POSTGRES_17")
+	api.users = []*sqladmin.User{{Name: "person@example.com", Host: "%", Type: userCloudIamUser}}
+	opener := newQueuedDBOpener(t)
+	_, tempMock := opener.expectContaining(
+		sqlDriverPostgres,
+		"user=blackstart",
+		"dbname=postgres",
+	)
+	tempMock.ExpectExec(regexp.QuoteMeta(`REVOKE cloudsqlsuperuser FROM "person@example.com";`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	tempMock.ExpectClose()
+
+	driver, dsn, _ := expectedManagedConnection("POSTGRES_17", "person@example.com")
+	_, managedMock := opener.expect(driver, dsn)
+	managedMock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).WillReturnRows(sqlmock.NewRows([]string{"result"}).AddRow(1))
+	managedMock.ExpectClose()
+
+	op := testManagedInstanceOperation("person@example.com")
+	op.DoesNotExist = true
+	ctx := blackstart.OpContext(context.Background(), &op)
+	module := &managedInstance{
+		creds:   &google.Credentials{ProjectID: "project"},
+		runtime: api.runtime(opener.open),
+	}
+	require.NoError(t, module.Set(ctx))
+	require.NoError(t, module.Close())
+	require.NoError(t, tempMock.ExpectationsWereMet())
+	require.NoError(t, managedMock.ExpectationsWereMet())
+	require.Len(t, api.users, 1)
+	require.Equal(t, "person@example.com", api.users[0].Name)
+}
+
+// TestManagedInstanceSetFailureStillCleansUpTemporaryUser verifies temporary-user cleanup on failure.
+func TestManagedInstanceSetFailureStillCleansUpTemporaryUser(t *testing.T) {
+	api := newFakeCloudSQLAdmin(t, "MYSQL_8_4")
+	opener := newQueuedDBOpener(t)
+	_, tempMock := opener.expectContaining(
+		sqlDriverMySQL,
+		"blackstart:",
+		"@cloudsql-mysql(project:us-central1:instance)/mysql",
+	)
+	tempMock.ExpectExec(regexp.QuoteMeta("GRANT `cloudsqlsuperuser` TO `person`@`%` WITH ADMIN OPTION")).
+		WillReturnError(errors.New("grant failed"))
+	tempMock.ExpectClose()
+
+	op := testManagedInstanceOperation("person@example.com")
+	ctx := blackstart.OpContext(context.Background(), &op)
+	module := &managedInstance{
+		creds:   &google.Credentials{ProjectID: "project"},
+		runtime: api.runtime(opener.open),
+	}
+	require.EqualError(t, module.Set(ctx), "failed to grant MySQL cloudsqlsuperuser role: grant failed")
+	require.NoError(t, tempMock.ExpectationsWereMet())
+	opener.verify()
+
+	require.Equal(t, 2, api.requestCount("POST", "/users"))
+	require.Equal(t, 1, api.requestCount("DELETE", "/users"))
+	require.Len(t, api.users, 1)
+	require.Equal(t, "person", api.users[0].Name)
+}
+
+// TestManagedInstanceSetupFailures verifies instance metadata and IAM validation failures.
+func TestManagedInstanceSetupFailures(t *testing.T) {
+	tests := map[string]struct {
+		version        string
+		disableIAM     bool
+		instanceStatus int
+		wantErr        string
+	}{
+		"unsupported mysql": {
+			version: "MYSQL_5_7",
+			wantErr: "google_cloudsql_managed_instance supports MySQL 8+; instance uses MYSQL_5_7",
+		},
+		"unsupported sql server": {
+			version: "SQLSERVER_2022_STANDARD",
+			wantErr: `the Cloud SQL engine "SQLSERVER" is not supported by google_cloudsql_managed_instance`,
+		},
+		"iam disabled": {
+			version:    "POSTGRES_17",
+			disableIAM: true,
+			wantErr:    "instance instance in project project does not have IAM database authentication enabled",
+		},
+		"instance API failure": {
+			version:        "POSTGRES_17",
+			instanceStatus: 500,
+			wantErr:        "failed to get instance instance in project project:",
+		},
+		"instance does not exist": {
+			version:        "POSTGRES_17",
+			instanceStatus: 404,
+			wantErr:        "instance instance does not exist in project project",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, tt.version)
+				if tt.disableIAM {
+					api.instance.Settings.DatabaseFlags[0].Value = "off"
+				}
+				if tt.instanceStatus != 0 {
+					api.fail["GET /v1/projects/project/instances/instance"] = tt.instanceStatus
+				}
+				op := testManagedInstanceOperation("person@example.com")
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := &managedInstance{
+					creds:   &google.Credentials{ProjectID: "project"},
+					runtime: api.runtime(nil),
+				}
+				_, err := module.Check(ctx)
+				require.ErrorContains(t, err, tt.wantErr)
+			},
+		)
+	}
+}
+
+// TestSetManagedRoleErrors verifies role-management SQL failures are returned.
+func TestSetManagedRoleErrors(t *testing.T) {
+	tests := map[string]struct {
+		engine  string
+		query   string
+		wantErr string
+	}{
+		"postgres grant": {
+			engine:  "POSTGRES",
+			query:   `GRANT cloudsqlsuperuser TO "person@example.com" WITH ADMIN OPTION;`,
+			wantErr: "failed to grant cloudsqlsuperuser role: grant failed",
+		},
+		"mysql grant": {
+			engine:  "MYSQL",
+			query:   "GRANT `cloudsqlsuperuser` TO `person`@`%` WITH ADMIN OPTION",
+			wantErr: "failed to grant MySQL cloudsqlsuperuser role: grant failed",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				db, mock, err := sqlmock.New()
+				require.NoError(t, err)
+				mock.ExpectExec(regexp.QuoteMeta(tt.query)).WillReturnError(errors.New("grant failed"))
+				op := testManagedInstanceOperation("person@example.com")
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := managedInstance{target: &connectionConfig{engine: tt.engine}}
+				require.EqualError(t, module.setManagedRole(ctx, db, "person@example.com"), tt.wantErr)
+				require.NoError(t, mock.ExpectationsWereMet())
+			},
+		)
+	}
+}
+
+// TestSetManagedRoleSecondaryErrors verifies errors after initial role-management statements.
+func TestSetManagedRoleSecondaryErrors(t *testing.T) {
+	tests := map[string]struct {
+		engine      string
+		iamIdentity string
+		firstQuery  string
+		failedQuery string
+		wantErr     string
+	}{
+		"postgres alter": {
+			engine:      "POSTGRES",
+			iamIdentity: "person@example.com",
+			firstQuery:  `GRANT cloudsqlsuperuser TO "person@example.com" WITH ADMIN OPTION;`,
+			failedQuery: `ALTER ROLE "person@example.com" WITH INHERIT CREATEROLE CREATEDB;`,
+			wantErr:     "failed to update management role: update failed",
+		},
+		"mysql default role": {
+			engine:      "MYSQL",
+			iamIdentity: "person@example.com",
+			firstQuery:  "GRANT `cloudsqlsuperuser` TO `person`@`%` WITH ADMIN OPTION",
+			failedQuery: "SET DEFAULT ROLE ALL TO `person`@`%`",
+			wantErr:     "failed to set default MySQL cloudsqlsuperuser role: update failed",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				db, mock, err := sqlmock.New()
+				require.NoError(t, err)
+				mock.ExpectExec(regexp.QuoteMeta(tt.firstQuery)).WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec(regexp.QuoteMeta(tt.failedQuery)).WillReturnError(errors.New("update failed"))
+
+				op := testManagedInstanceOperation(tt.iamIdentity)
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := managedInstance{target: &connectionConfig{engine: tt.engine}}
+				require.ErrorContains(t, module.setManagedRole(ctx, db, tt.iamIdentity), tt.wantErr)
+				require.NoError(t, mock.ExpectationsWereMet())
+			},
+		)
+	}
+
+	t.Run(
+		"invalid mysql identity", func(t *testing.T) {
+			db, _, err := sqlmock.New()
+			require.NoError(t, err)
+			op := testManagedInstanceOperation("not-an-email")
+			ctx := blackstart.OpContext(context.Background(), &op)
+			module := managedInstance{target: &connectionConfig{engine: "MYSQL"}}
+			err = module.setManagedRole(ctx, db, "not-an-email")
+			require.EqualError(t, err, "MySQL IAM identity must be an email address: not-an-email")
+		},
+	)
+
+	t.Run(
+		"unsupported engine", func(t *testing.T) {
+			db, _, err := sqlmock.New()
+			require.NoError(t, err)
+			op := testManagedInstanceOperation("person@example.com")
+			ctx := blackstart.OpContext(context.Background(), &op)
+			module := managedInstance{target: &connectionConfig{engine: "SQLSERVER"}}
+			err = module.setManagedRole(ctx, db, "person@example.com")
+			require.EqualError(t, err, "unsupported Cloud SQL engine for role management: SQLSERVER")
+		},
+	)
+}
+
+// TestSetManagedRoleSuccess verifies engine-specific grant and revoke statements.
+func TestSetManagedRoleSuccess(t *testing.T) {
+	tests := map[string]struct {
+		engine       string
+		doesNotExist bool
+		queries      []string
+	}{
+		"postgres grant": {
+			engine: "POSTGRES",
+			queries: []string{
+				`GRANT cloudsqlsuperuser TO "person@example.com" WITH ADMIN OPTION;`,
+				`ALTER ROLE "person@example.com" WITH INHERIT CREATEROLE CREATEDB;`,
+			},
+		},
+		"postgres revoke": {
+			engine:       "POSTGRES",
+			doesNotExist: true,
+			queries:      []string{`REVOKE cloudsqlsuperuser FROM "person@example.com";`},
+		},
+		"mysql grant": {
+			engine: "MYSQL",
+			queries: []string{
+				"GRANT `cloudsqlsuperuser` TO `person`@`%` WITH ADMIN OPTION",
+				"SET DEFAULT ROLE ALL TO `person`@`%`",
+			},
+		},
+		"mysql revoke": {
+			engine:       "MYSQL",
+			doesNotExist: true,
+			queries:      []string{"REVOKE `cloudsqlsuperuser` FROM `person`@`%`"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				db, mock, err := sqlmock.New()
+				require.NoError(t, err)
+				for _, query := range tt.queries {
+					mock.ExpectExec(regexp.QuoteMeta(query)).WillReturnResult(sqlmock.NewResult(0, 0))
+				}
+				op := testManagedInstanceOperation("person@example.com")
+				op.DoesNotExist = tt.doesNotExist
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := managedInstance{target: &connectionConfig{engine: tt.engine}}
+				require.NoError(t, module.setManagedRole(ctx, db, "person@example.com"))
+				require.NoError(t, mock.ExpectationsWereMet())
+			},
+		)
+	}
+}
+
+// TestManagedInstanceDatabaseFailures verifies database open and validation-query failures.
+func TestManagedInstanceDatabaseFailures(t *testing.T) {
+	tests := map[string]struct {
+		openErr  error
+		queryErr error
+		wantErr  string
+	}{
+		"open failure": {
+			openErr: errors.New("open failed"),
+			wantErr: "failed to open database connection: failed to open database connection: open failed",
+		},
+		"query failure": {
+			queryErr: errors.New("query failed"),
+			wantErr:  "failed to open database connection: failed to run query: query failed",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, "POSTGRES_17")
+				var opener func(string, string) (*sql.DB, error)
+				if tt.openErr != nil {
+					opener = func(string, string) (*sql.DB, error) { return nil, tt.openErr }
+				} else {
+					queue := newQueuedDBOpener(t)
+					driver, dsn, _ := expectedManagedConnection("POSTGRES_17", "person@example.com")
+					_, mock := queue.expect(driver, dsn)
+					mock.ExpectQuery(regexp.QuoteMeta("SELECT 1")).WillReturnError(tt.queryErr)
+					mock.ExpectClose()
+					opener = queue.open
+				}
+				op := testManagedInstanceOperation("person@example.com")
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := &managedInstance{
+					creds:   &google.Credentials{ProjectID: "project"},
+					runtime: api.runtime(opener),
+				}
+				_, err := module.Check(ctx)
+				require.EqualError(t, err, tt.wantErr)
+			},
+		)
+	}
+}
+
+// expectedManagedConnection returns the expected driver, DSN, and role query for a test instance.
+func expectedManagedConnection(databaseVersion, userName string) (string, string, string) {
+	identifier := "project:us-central1:instance"
+	if instanceEngine(databaseVersion) == "MYSQL" {
+		localName, _ := mysqlIamUser(userName)
+		return sqlDriverMySQLIam,
+			cloudsqlMySQLDsn(sqlDriverMySQLIam, identifier, "", localName, ""),
+			checkMySQLCloudSqlSuperuserRoleQuery
+	}
+	return sqlDriverPostgresIam,
+		cloudsqlPostgresIamDsn(identifier, "postgres", userName),
+		checkPostgresCloudSqlSuperuserRoleQuery
 }

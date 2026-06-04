@@ -2,6 +2,8 @@ package cloudsql
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -163,10 +165,12 @@ func TestCloudSqlMySQLUserMatching(t *testing.T) {
 	}
 
 	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tt.exists, cloudSqlUserExists(users, tt.targetUser, "MYSQL"))
-			require.Equal(t, tt.correct, cloudSqlUserIsCorrect(users, tt.targetUser, tt.targetType, "MYSQL"))
-		})
+		t.Run(
+			name, func(t *testing.T) {
+				require.Equal(t, tt.exists, cloudSqlUserExists(users, tt.targetUser, "MYSQL"))
+				require.Equal(t, tt.correct, cloudSqlUserIsCorrect(users, tt.targetUser, tt.targetType, "MYSQL"))
+			},
+		)
 	}
 }
 
@@ -222,14 +226,273 @@ func TestValidateMySQLUserCollision(t *testing.T) {
 	}
 
 	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			err := validateMySQLUserCollision(tt.users, "person@example.com", tt.targetType, tt.engine)
-			if tt.wantErr {
+		t.Run(
+			name, func(t *testing.T) {
+				err := validateMySQLUserCollision(tt.users, "person@example.com", tt.targetType, tt.engine)
+				if tt.wantErr {
+					require.Error(t, err)
+					require.ErrorIs(t, err, ErrMySQLUserCollision)
+					return
+				}
+				require.NoError(t, err)
+			},
+		)
+	}
+}
+
+// TestUserCheckWithFakeAdminAPI verifies user check behavior against the fake Admin API.
+func TestUserCheckWithFakeAdminAPI(t *testing.T) {
+	tests := map[string]struct {
+		version      string
+		users        []*sqladmin.User
+		userName     string
+		userType     string
+		doesNotExist bool
+		tainted      bool
+		want         bool
+		wantErr      error
+	}{
+		"existing postgres IAM user": {
+			version:  "POSTGRES_17",
+			users:    []*sqladmin.User{{Name: "person@example.com", Type: userCloudIamUser}},
+			userName: "person@example.com",
+			userType: userCloudIamUser,
+			want:     true,
+		},
+		"missing user": {
+			version:  "POSTGRES_17",
+			userName: "person@example.com",
+			userType: userCloudIamUser,
+		},
+		"missing user satisfies does not exist": {
+			version:      "MYSQL_8_4",
+			userName:     "person@example.com",
+			userType:     userCloudIamUser,
+			doesNotExist: true,
+			want:         true,
+		},
+		"existing user fails does not exist": {
+			version:      "MYSQL_8_4",
+			users:        []*sqladmin.User{{Name: "person", Type: userCloudIamUser}},
+			userName:     "person@example.com",
+			userType:     userCloudIamUser,
+			doesNotExist: true,
+		},
+		"tainted user always misses": {
+			version:  "POSTGRES_17",
+			users:    []*sqladmin.User{{Name: "person@example.com", Type: userCloudIamUser}},
+			userName: "person@example.com",
+			userType: userCloudIamUser,
+			tainted:  true,
+		},
+		"mysql collision errors": {
+			version:  "MYSQL_8_4",
+			users:    []*sqladmin.User{{Name: "person", Type: ""}},
+			userName: "person@example.com",
+			userType: userCloudIamUser,
+			wantErr:  ErrMySQLUserCollision,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, tt.version)
+				api.users = cloneUsers(tt.users)
+				op := testCloudSQLUserOperation(tt.userName, tt.userType)
+				op.DoesNotExist = tt.doesNotExist
+				op.Tainted = tt.tainted
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := &user{runtime: api.runtime(nil)}
+
+				got, err := module.Check(ctx)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			},
+		)
+	}
+}
+
+// TestUserSetWithFakeAdminAPI verifies user creation, replacement, deletion, and collision behavior.
+func TestUserSetWithFakeAdminAPI(t *testing.T) {
+	tests := map[string]struct {
+		version      string
+		users        []*sqladmin.User
+		userName     string
+		userType     string
+		doesNotExist bool
+		tainted      bool
+		wantUsers    []*sqladmin.User
+		wantInsert   int
+		wantDelete   int
+		insertedName string
+		wantErr      error
+	}{
+		"creates postgres service account with normalized name": {
+			version:      "POSTGRES_17",
+			userName:     "svc@project.iam.gserviceaccount.com",
+			userType:     userCloudIamServiceAccount,
+			wantUsers:    []*sqladmin.User{{Name: "svc@project.iam", Host: "%", Type: userCloudIamServiceAccount}},
+			wantInsert:   1,
+			insertedName: "svc@project.iam",
+		},
+		"creates mysql IAM user using full identity": {
+			version:      "MYSQL_8_4",
+			userName:     "person@example.com",
+			userType:     userCloudIamUser,
+			wantUsers:    []*sqladmin.User{{Name: "person", IamEmail: "person@example.com", Host: "%", Type: userCloudIamUser}},
+			wantInsert:   1,
+			insertedName: "person@example.com",
+		},
+		"replaces tainted user": {
+			version:      "POSTGRES_17",
+			users:        []*sqladmin.User{{Name: "person@example.com", Host: "%", Type: userCloudIamUser}},
+			userName:     "person@example.com",
+			userType:     userCloudIamUser,
+			tainted:      true,
+			wantUsers:    []*sqladmin.User{{Name: "person@example.com", Host: "%", Type: userCloudIamUser}},
+			wantInsert:   1,
+			wantDelete:   1,
+			insertedName: "person@example.com",
+		},
+		"deletes existing user": {
+			version:      "MYSQL_8_4",
+			users:        []*sqladmin.User{{Name: "person@example.com", Host: "%", Type: userCloudIamUser}},
+			userName:     "person@example.com",
+			userType:     userCloudIamUser,
+			doesNotExist: true,
+			wantDelete:   1,
+		},
+		"refuses mysql collision": {
+			version:  "MYSQL_8_4",
+			users:    []*sqladmin.User{{Name: "person", Type: ""}},
+			userName: "person@example.com",
+			userType: userCloudIamUser,
+			wantUsers: []*sqladmin.User{
+				{Name: "person", Type: ""},
+			},
+			wantErr: ErrMySQLUserCollision,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, tt.version)
+				api.users = cloneUsers(tt.users)
+				op := testCloudSQLUserOperation(tt.userName, tt.userType)
+				op.DoesNotExist = tt.doesNotExist
+				op.Tainted = tt.tainted
+				ctx := blackstart.OpContext(context.Background(), &op)
+				module := &user{runtime: api.runtime(nil)}
+
+				err := module.Set(ctx)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
+				require.ElementsMatch(t, tt.wantUsers, api.users)
+				require.Equal(t, tt.wantInsert, api.requestCount(http.MethodPost, "/users"))
+				require.Equal(t, tt.wantDelete, api.requestCount(http.MethodDelete, "/users"))
+				if tt.wantInsert > 0 {
+					require.Equal(t, tt.insertedName, api.inserted[len(api.inserted)-1].Name)
+				}
+			},
+		)
+	}
+}
+
+// TestUserAdminAPIFailures verifies Admin API failures are returned by the user module.
+func TestUserAdminAPIFailures(t *testing.T) {
+	tests := map[string]struct {
+		method     string
+		pathSuffix string
+		call       func(*user, blackstart.ModuleContext) error
+	}{
+		"instance get": {
+			method:     http.MethodGet,
+			pathSuffix: "/instances/instance",
+			call: func(module *user, ctx blackstart.ModuleContext) error {
+				_, err := module.Check(ctx)
+				return err
+			},
+		},
+		"user list": {
+			method:     http.MethodGet,
+			pathSuffix: "/instances/instance/users",
+			call: func(module *user, ctx blackstart.ModuleContext) error {
+				_, err := module.Check(ctx)
+				return err
+			},
+		},
+		"user insert": {
+			method:     http.MethodPost,
+			pathSuffix: "/instances/instance/users",
+			call:       func(module *user, ctx blackstart.ModuleContext) error { return module.Set(ctx) },
+		},
+		"user delete": {
+			method:     http.MethodDelete,
+			pathSuffix: "/instances/instance/users",
+			call: func(module *user, ctx blackstart.ModuleContext) error {
+				return module.Set(ctx)
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, "POSTGRES_17")
+				api.users = []*sqladmin.User{{Name: "person@example.com", Host: "%", Type: userCloudIamUser}}
+				api.fail[tt.method+" /v1/projects/project"+tt.pathSuffix] = http.StatusInternalServerError
+				op := testCloudSQLUserOperation("person@example.com", userCloudIamUser)
+				if name == "user delete" {
+					op.DoesNotExist = true
+				}
+				ctx := blackstart.OpContext(context.Background(), &op)
+
+				err := tt.call(&user{runtime: api.runtime(nil)}, ctx)
 				require.Error(t, err)
-				require.ErrorIs(t, err, ErrMySQLUserCollision)
-				return
-			}
-			require.NoError(t, err)
-		})
+				require.False(t, errors.Is(err, ErrMySQLUserCollision))
+			},
+		)
+	}
+}
+
+// TestUserSetupValidationWithFakeAdminAPI verifies engine and IAM authentication validation.
+func TestUserSetupValidationWithFakeAdminAPI(t *testing.T) {
+	tests := map[string]struct {
+		version    string
+		disableIAM bool
+	}{
+		"mysql 5.6 unsupported": {
+			version: "MYSQL_5_6",
+		},
+		"sql server unsupported": {
+			version: "SQLSERVER_2022_STANDARD",
+		},
+		"IAM authentication disabled": {
+			version:    "POSTGRES_17",
+			disableIAM: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				api := newFakeCloudSQLAdmin(t, tt.version)
+				if tt.disableIAM {
+					api.instance.Settings.DatabaseFlags[0].Value = "off"
+				}
+				op := testCloudSQLUserOperation("person@example.com", userCloudIamUser)
+				ctx := blackstart.OpContext(context.Background(), &op)
+				_, err := (&user{runtime: api.runtime(nil)}).Check(ctx)
+				require.Error(t, err)
+			},
+		)
 	}
 }

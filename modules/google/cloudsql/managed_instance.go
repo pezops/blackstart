@@ -13,7 +13,6 @@ import (
 	gomysql "github.com/go-sql-driver/mysql"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"
-	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/pezops/blackstart"
@@ -46,13 +45,17 @@ func NewCloudSqlManagedInstance() blackstart.Module {
 	return &managedInstance{}
 }
 
+// managedInstance manages the current IAM identity's administrative role on a Cloud SQL instance.
 type managedInstance struct {
 	target             *connectionConfig
 	sqlService         *sqladmin.Service
 	creds              *google.Credentials
 	managedConnections []*sql.DB
+	// runtime provides injectable Cloud SQL Admin API and database dependencies.
+	runtime *cloudSQLRuntime
 }
 
+// Info returns metadata describing the Cloud SQL managed-instance module.
 func (m *managedInstance) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:   "google_cloudsql_managed_instance",
@@ -162,6 +165,7 @@ inputs:
 	}
 }
 
+// Validate checks whether an operation contains valid Cloud SQL managed-instance inputs.
 func (m *managedInstance) Validate(op blackstart.Operation) error {
 	for _, p := range requiredCloudSqlManagedInstanceParameters {
 		if _, ok := op.Inputs[p]; !ok {
@@ -196,6 +200,7 @@ func (m *managedInstance) Validate(op blackstart.Operation) error {
 	return nil
 }
 
+// Check reports whether the current IAM identity has the requested managed-instance role.
 func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 	err := m.setup(ctx)
 	if err != nil {
@@ -245,6 +250,7 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 	return res, nil
 }
 
+// Set reconciles the current IAM identity's managed-instance role and connection output.
 func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	err := m.setup(ctx)
 	if err != nil {
@@ -294,7 +300,7 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 		Name:   "temp-user",
 		Module: "google_cloudsql_user",
 	}
-	mgmtUserModule := user{}
+	mgmtUserModule := user{runtime: m.runtime}
 	mgmtUserMctx := blackstart.OpContext(ctx, &mgmtUserOp)
 	mgmtUserExists, checkErr := mgmtUserModule.Check(mgmtUserMctx)
 	if checkErr != nil && (!ctx.DoesNotExist() || errors.Is(checkErr, ErrMySQLUserCollision)) {
@@ -335,6 +341,7 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	return err
 }
 
+// setManagedRole dispatches role reconciliation to the target database engine implementation.
 func (m *managedInstance) setManagedRole(ctx blackstart.ModuleContext, db *sql.DB, iamIdentity string) error {
 	switch m.target.engine {
 	case "MYSQL":
@@ -346,6 +353,7 @@ func (m *managedInstance) setManagedRole(ctx blackstart.ModuleContext, db *sql.D
 	}
 }
 
+// setManagedRolePostgres grants or revokes PostgreSQL managed-instance privileges.
 func setManagedRolePostgres(ctx blackstart.ModuleContext, db *sql.DB, iamIdentity string) error {
 	if !ctx.DoesNotExist() {
 		if _, err := db.ExecContext(
@@ -366,6 +374,7 @@ func setManagedRolePostgres(ctx blackstart.ModuleContext, db *sql.DB, iamIdentit
 	return nil
 }
 
+// setManagedRoleMySQL grants or revokes MySQL managed-instance privileges.
 func setManagedRoleMySQL(ctx blackstart.ModuleContext, db *sql.DB, iamIdentity string) error {
 	username, err := mysqlIamUser(iamIdentity)
 	if err != nil {
@@ -453,7 +462,8 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 	}
 	m.target.database = database
 
-	m.sqlService, err = sqladmin.NewService(ctx, option.WithUserAgent(blackstart.UserAgent))
+	m.runtime = cloudSQLRuntimeOrDefault(m.runtime)
+	m.sqlService, err = m.runtime.newSQLAdminService(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create SQL Admin service: %w", err)
 	}
@@ -462,6 +472,7 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 		return err
 	}
 	m.target.region = instanceResource.Region
+	m.target.identifier = fmt.Sprintf("%s:%s:%s", m.target.project, instanceResource.Region, m.target.instance)
 	m.target.engine = instanceEngine(instanceResource.DatabaseVersion)
 	m.target.databaseVersion = instanceResource.DatabaseVersion
 	switch m.target.engine {
@@ -538,7 +549,7 @@ func (m *managedInstance) getConnection(ctx blackstart.ModuleContext) (*sql.DB, 
 		}
 		dsn = cloudsqlMySQLDsn(driver, dbConnIdentifier, m.target.database, username, "")
 	}
-	db, err := sql.Open(driver, dsn)
+	db, err := m.runtime.openDB(driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -546,6 +557,7 @@ func (m *managedInstance) getConnection(ctx blackstart.ModuleContext) (*sql.DB, 
 	var result int
 	err = db.QueryRowContext(ctx, "SELECT 1").Scan(&result)
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to run query: %w", err)
 	}
 
@@ -626,7 +638,7 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 		Name:   "temp-user",
 		Module: "google_cloudsql_user",
 	}
-	tempUserModule := user{}
+	tempUserModule := user{runtime: m.runtime}
 	tempUserMctx := blackstart.OpContext(ctx, &tempUserOp)
 	err := tempUserModule.Set(tempUserMctx)
 	if err != nil {
@@ -648,7 +660,7 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 	} else {
 		tempConnDsn = cloudsqlPostgresBuiltInDsn(tempInstanceIndentifier, adminDb, adminUser, tempPass)
 	}
-	tempDb, err := sql.Open(driver, tempConnDsn)
+	tempDb, err := m.runtime.openDB(driver, tempConnDsn)
 	if err != nil {
 		return nil, closer, fmt.Errorf("failed to open temporary database connection: %w", err)
 	}
@@ -667,6 +679,7 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 	return tempDb, closer, nil
 }
 
+// getInstance returns the target Cloud SQL instance metadata.
 func (m *managedInstance) getInstance(ctx blackstart.ModuleContext) (*sqladmin.DatabaseInstance, error) {
 	instance, err := m.sqlService.Instances.Get(m.target.project, m.target.instance).Context(ctx).Do()
 	if err != nil {

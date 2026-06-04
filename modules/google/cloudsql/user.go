@@ -10,7 +10,6 @@ import (
 
 	"github.com/pezops/blackstart/util"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/pezops/blackstart"
@@ -25,6 +24,8 @@ func init() {
 
 var _ blackstart.Module = &user{}
 var requiredUserParameters = []string{inputInstance, inputUser, inputUserType}
+
+// ErrMySQLUserCollision indicates an IAM user conflicts with an existing MySQL local username.
 var ErrMySQLUserCollision = errors.New("MySQL user local-name collision")
 
 // Explicitly choosing to support only IAM service accounts and IAM users / groups. Built-in users
@@ -40,8 +41,11 @@ func NewCloudSqlUser() blackstart.Module {
 type user struct {
 	target     *connectionConfig
 	sqlService *sqladmin.Service
+	// runtime provides injectable Cloud SQL Admin API and database dependencies.
+	runtime *cloudSQLRuntime
 }
 
+// Info returns metadata describing the Cloud SQL user module.
 func (c *user) Info() blackstart.ModuleInfo {
 	return blackstart.ModuleInfo{
 		Id:   "google_cloudsql_user",
@@ -110,6 +114,7 @@ inputs:
 	}
 }
 
+// Validate checks whether an operation contains valid Cloud SQL user inputs.
 func (c *user) Validate(op blackstart.Operation) error {
 	for _, p := range requiredUserParameters {
 		if _, ok := op.Inputs[p]; !ok {
@@ -139,6 +144,7 @@ func (c *user) Validate(op blackstart.Operation) error {
 	return nil
 }
 
+// Check reports whether the target Cloud SQL user is in the requested state.
 func (c *user) Check(ctx blackstart.ModuleContext) (bool, error) {
 	err := c.setup(ctx)
 	if err != nil {
@@ -185,6 +191,7 @@ func (c *user) Check(ctx blackstart.ModuleContext) (bool, error) {
 
 }
 
+// Set reconciles the target Cloud SQL user to the requested state.
 func (c *user) Set(ctx blackstart.ModuleContext) error {
 	err := c.setup(ctx)
 	if err != nil {
@@ -236,7 +243,8 @@ func (c *user) setup(mctx blackstart.ModuleContext) error {
 	}
 
 	// Create a new SQL Admin Service
-	c.sqlService, err = sqladmin.NewService(mctx, option.WithUserAgent(blackstart.UserAgent))
+	c.runtime = cloudSQLRuntimeOrDefault(c.runtime)
+	c.sqlService, err = c.runtime.newSQLAdminService(mctx)
 	if err != nil {
 		return fmt.Errorf("failed to create SQL Admin service: %w", err)
 	}
@@ -246,6 +254,8 @@ func (c *user) setup(mctx blackstart.ModuleContext) error {
 	}
 	c.target.engine = instanceEngine(instance.DatabaseVersion)
 	c.target.databaseVersion = instance.DatabaseVersion
+	c.target.region = instance.Region
+	c.target.identifier = fmt.Sprintf("%s:%s:%s", c.target.project, instance.Region, c.target.instance)
 	if c.target.engine == "SQLSERVER" || c.target.engine == "UNKNOWN" {
 		return fmt.Errorf("the Cloud SQL engine %q is not supported by google_cloudsql_user", c.target.engine)
 	}
@@ -303,6 +313,7 @@ func (c *user) user(ctx blackstart.ModuleContext) (*sqladmin.User, error) {
 	return sqlUser, nil
 }
 
+// databaseUsername returns the engine-specific database username for an IAM identity.
 func (c *user) databaseUsername(iamIdentity string) (string, error) {
 	if c.target != nil && c.target.engine == "MYSQL" && c.target.userType != userBuiltIn {
 		return mysqlIamUser(iamIdentity)
@@ -443,6 +454,7 @@ func cloudSqlUserExists(usersList *sqladmin.UsersListResponse, targetUser string
 	return false
 }
 
+// validateMySQLUserCollision rejects MySQL users that conflict with the target local username.
 func validateMySQLUserCollision(
 	usersList *sqladmin.UsersListResponse, targetUser string, targetUserType string, engine string,
 ) error {
