@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.14] - 2026-06-04
 
 ### 🐛 Bug Fixes
 
