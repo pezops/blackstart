@@ -15,6 +15,39 @@ tag and a draft GitHub release.
 Publishing the draft release triggers the artifact release workflow, which publishes the container
 image and Helm chart. It also triggers the documentation deployment.
 
+## Automation Flow
+
+The release process uses three GitHub Actions workflows:
+
+1. `Release Please` runs after changes merge into `main`. It creates or updates one release pull
+   request containing the proposed version, release notes, `CHANGELOG.md`, and
+   `.release-please-manifest.json`.
+2. Merging the release pull request runs `Release Please` again. It creates the version tag and a
+   draft GitHub release. It does not publish release artifacts.
+3. Publishing the draft GitHub release runs `Release`. That workflow builds and publishes the
+   container image, uploads the Helm chart release asset, updates the `latest` container tag when
+   appropriate, and starts the Pages documentation deployment.
+
+Release Please continues updating the same open release pull request as additional changes merge
+into `main`. Merge that pull request only when its proposed changelog and version are ready for a
+release.
+
+## Release Pull Request Chart Preview
+
+The `Release PR Chart Preview` workflow runs when the Release Please pull request creates or updates
+`.release-please-manifest.json`. It reads the proposed version from the manifest, packages the local
+Helm chart with that version, and merges it into a preview of the published Helm repository index.
+
+Review the workflow result before merging the release pull request:
+
+- The `Build Helm Chart Index Preview` check must pass.
+- The generated index must contain the proposed chart version.
+- The `chart-index-preview-<version>` workflow artifact can be downloaded to inspect the complete
+  generated `index.yaml`.
+
+The preview validates the future chart repository entry only. Publishing the draft release creates
+and uploads the actual Helm chart asset.
+
 ## Version Selection
 
 Release Please calculates the next version from conventional commits:
