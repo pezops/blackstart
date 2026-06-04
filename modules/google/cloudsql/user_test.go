@@ -14,10 +14,10 @@ import (
 	"github.com/pezops/blackstart/util"
 )
 
-// TestUserBuiltin tests the cloudsqlv1 user module with a built-in users. The use of built-in users
-// is not normally allowed, and it only used temporarily by blackstart to initially set up the
-// blackstart IAM user service account.
-func TestUserBuiltin(t *testing.T) {
+// TestPostgresUserBuiltin tests the PostgreSQL Cloud SQL user module with a built-in user. The use
+// of built-in users is not normally allowed, and it only used temporarily by blackstart to initially
+// set up the blackstart IAM user service account.
+func TestPostgresUserBuiltin(t *testing.T) {
 
 	// This is a live test, the cloud config pulls settings from the environment.
 	cloudConfig := map[string]string{
@@ -131,6 +131,74 @@ func TestUserBuiltin(t *testing.T) {
 	require.Equal(t, false, res)
 }
 
+// TestMySQLUserBuiltin tests built-in user lifecycle operations against a live MySQL instance.
+func TestMySQLUserBuiltin(t *testing.T) {
+	cloudConfig := map[string]string{
+		inputDatabase: "mysql",
+		inputUser:     "blackstart",
+	}
+
+	for _, key := range []string{inputProject, inputInstance} {
+		cloudConfig[key] = util.GetTestEnvRequiredVar(t, mysqlLiveModulePackage, key)
+	}
+	for _, key := range []string{inputRegion, inputDatabase, inputUser} {
+		if value := util.GetTestEnvOptionalVar(t, mysqlLiveModulePackage, key); value != "" {
+			cloudConfig[key] = value
+		}
+	}
+
+	op := blackstart.Operation{
+		Inputs: map[string]blackstart.Input{
+			inputUserType: blackstart.NewInputFromValue(userBuiltIn),
+			inputInstance: blackstart.NewInputFromValue(cloudConfig[inputInstance]),
+			inputProject:  blackstart.NewInputFromValue(cloudConfig[inputProject]),
+			inputRegion:   blackstart.NewInputFromValue(cloudConfig[inputRegion]),
+			inputDatabase: blackstart.NewInputFromValue(cloudConfig[inputDatabase]),
+			inputUser:     blackstart.NewInputFromValue(cloudConfig[inputUser]),
+			inputPassword: blackstart.NewInputFromValue(util.RandomPassword(18)),
+		},
+		Id:           "test-mysql-user",
+		Name:         "test-mysql-user",
+		Module:       "google_cloudsql_user",
+		DoesNotExist: true,
+		Tainted:      true,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	module := NewCloudSqlUser()
+
+	t.Log("deleting the MySQL built-in test user if it exists")
+	_ = module.Set(blackstart.OpContext(ctx, &op))
+
+	op.DoesNotExist = false
+	mctx := blackstart.OpContext(ctx, &op)
+	t.Log("creating the MySQL built-in test user")
+	require.NoError(t, module.Set(mctx))
+	t.Cleanup(
+		func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cleanupCancel()
+			op.DoesNotExist = true
+			_ = module.Set(blackstart.OpContext(cleanupCtx, &op))
+		},
+	)
+
+	op.Tainted = false
+	mctx = blackstart.OpContext(ctx, &op)
+	exists, err := module.Check(mctx)
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	op.DoesNotExist = true
+	mctx = blackstart.OpContext(ctx, &op)
+	t.Log("deleting the MySQL built-in test user")
+	require.NoError(t, module.Set(mctx))
+	exists, err = module.Check(mctx)
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
 func TestCloudSqlMySQLUserMatching(t *testing.T) {
 	users := &sqladmin.UsersListResponse{
 		Items: []*sqladmin.User{
@@ -184,6 +252,42 @@ func TestMySQLDatabaseUsername(t *testing.T) {
 	got, err := u.databaseUsername("blackstart@project.iam.gserviceaccount.com")
 	require.NoError(t, err)
 	require.Equal(t, "blackstart", got)
+}
+
+// TestMySQLUserAPIShape verifies engine-specific Cloud SQL Admin API user fields.
+func TestMySQLUserAPIShape(t *testing.T) {
+	tests := map[string]struct {
+		userType string
+		password string
+		wantHost string
+	}{
+		"IAM user omits host and password": {
+			userType: userCloudIamUser,
+		},
+		"built-in user includes host and password": {
+			userType: userBuiltIn,
+			password: "secret",
+			wantHost: "%",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				module := user{
+					target: &connectionConfig{
+						engine:   "MYSQL",
+						user:     "person@example.com",
+						userType: tt.userType,
+						password: tt.password,
+					},
+				}
+				got, err := module.user(nil)
+				require.NoError(t, err)
+				require.Equal(t, tt.wantHost, got.Host)
+				require.Equal(t, tt.password, got.Password)
+			},
+		)
+	}
 }
 
 func TestValidateMySQLUserCollision(t *testing.T) {
@@ -336,7 +440,7 @@ func TestUserSetWithFakeAdminAPI(t *testing.T) {
 			version:      "POSTGRES_17",
 			userName:     "svc@project.iam.gserviceaccount.com",
 			userType:     userCloudIamServiceAccount,
-			wantUsers:    []*sqladmin.User{{Name: "svc@project.iam", Host: "%", Type: userCloudIamServiceAccount}},
+			wantUsers:    []*sqladmin.User{{Name: "svc@project.iam", Type: userCloudIamServiceAccount}},
 			wantInsert:   1,
 			insertedName: "svc@project.iam",
 		},
@@ -344,7 +448,7 @@ func TestUserSetWithFakeAdminAPI(t *testing.T) {
 			version:      "MYSQL_8_4",
 			userName:     "person@example.com",
 			userType:     userCloudIamUser,
-			wantUsers:    []*sqladmin.User{{Name: "person", IamEmail: "person@example.com", Host: "%", Type: userCloudIamUser}},
+			wantUsers:    []*sqladmin.User{{Name: "person", IamEmail: "person@example.com", Type: userCloudIamUser}},
 			wantInsert:   1,
 			insertedName: "person@example.com",
 		},
@@ -354,7 +458,7 @@ func TestUserSetWithFakeAdminAPI(t *testing.T) {
 			userName:     "person@example.com",
 			userType:     userCloudIamUser,
 			tainted:      true,
-			wantUsers:    []*sqladmin.User{{Name: "person@example.com", Host: "%", Type: userCloudIamUser}},
+			wantUsers:    []*sqladmin.User{{Name: "person@example.com", Type: userCloudIamUser}},
 			wantInsert:   1,
 			wantDelete:   1,
 			insertedName: "person@example.com",
@@ -405,6 +509,22 @@ func TestUserSetWithFakeAdminAPI(t *testing.T) {
 			},
 		)
 	}
+}
+
+// TestMySQLBuiltinUserDeleteIncludesHost verifies deletion targets the built-in MySQL account host.
+func TestMySQLBuiltinUserDeleteIncludesHost(t *testing.T) {
+	api := newFakeCloudSQLAdmin(t, "MYSQL_8_4")
+	api.users = []*sqladmin.User{{Name: "blackstart", Host: "%", Type: ""}}
+	op := testCloudSQLUserOperation("blackstart", userBuiltIn)
+	op.Inputs[inputPassword] = blackstart.NewInputFromValue("unused-for-delete")
+	op.DoesNotExist = true
+	ctx := blackstart.OpContext(context.Background(), &op)
+
+	require.NoError(t, (&user{runtime: api.runtime(nil)}).Set(ctx))
+	require.Len(t, api.deleted, 1)
+	require.Equal(t, "blackstart", api.deleted[0].Get("name"))
+	require.Equal(t, "%", api.deleted[0].Get("host"))
+	require.Empty(t, api.users)
 }
 
 // TestUserAdminAPIFailures verifies Admin API failures are returned by the user module.

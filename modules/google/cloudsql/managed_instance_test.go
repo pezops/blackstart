@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +26,8 @@ import (
 	"github.com/pezops/blackstart/util"
 )
 
-func TestManagedInstance(t *testing.T) {
+// TestPostgresManagedInstance tests managed-instance reconciliation against a live PostgreSQL instance.
+func TestPostgresManagedInstance(t *testing.T) {
 	var err error
 
 	// This is a live test, the cloud config pulls settings from the environment.
@@ -104,7 +106,74 @@ func TestManagedInstance(t *testing.T) {
 
 }
 
-func TestConnectUser(t *testing.T) {
+// TestMySQLManagedInstance tests managed-instance reconciliation against a live MySQL instance.
+func TestMySQLManagedInstance(t *testing.T) {
+	cloudConfig := map[string]string{}
+	for _, key := range []string{inputProject, inputInstance} {
+		cloudConfig[key] = util.GetTestEnvRequiredVar(t, mysqlLiveModulePackage, key)
+	}
+	for _, key := range []string{inputRegion, inputUser, inputConnectionType} {
+		if value := util.GetTestEnvOptionalVar(t, mysqlLiveModulePackage, key); value != "" {
+			cloudConfig[key] = value
+		}
+	}
+	if cloudConfig[inputConnectionType] == "" {
+		cloudConfig[inputConnectionType] = "PUBLIC_IP"
+	}
+
+	inputs := map[string]blackstart.Input{
+		inputInstance:       blackstart.NewInputFromValue(cloudConfig[inputInstance]),
+		inputProject:        blackstart.NewInputFromValue(cloudConfig[inputProject]),
+		inputRegion:         blackstart.NewInputFromValue(cloudConfig[inputRegion]),
+		inputConnectionType: blackstart.NewInputFromValue(cloudConfig[inputConnectionType]),
+	}
+	if cloudConfig[inputUser] != "" {
+		inputs[inputUser] = blackstart.NewInputFromValue(cloudConfig[inputUser])
+	}
+	op := blackstart.Operation{
+		Inputs: inputs,
+		Id:     "test-mysql-managed-instance",
+		Name:   "test-mysql-managed-instance",
+		Module: "google_cloudsql_managed_instance",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	module := NewCloudSqlManagedInstance()
+
+	t.Log("setting the MySQL instance to managed")
+	require.NoError(t, module.Set(blackstart.OpContext(ctx, &op)))
+	t.Cleanup(
+		func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cleanupCancel()
+			op.DoesNotExist = true
+			_ = module.Set(blackstart.OpContext(cleanupCtx, &op))
+			if closer, ok := module.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		},
+	)
+
+	checkOp := op
+	checkOp.Id = "check-mysql-managed-instance"
+	managed, err := module.Check(blackstart.OpContext(ctx, &checkOp))
+	require.NoError(t, err)
+	require.True(t, managed)
+
+	op.DoesNotExist = true
+	t.Log("setting the MySQL instance to unmanaged")
+	require.NoError(t, module.Set(blackstart.OpContext(ctx, &op)))
+
+	checkOp = op
+	checkOp.Id = "check-mysql-unmanaged-instance"
+	managed, err = module.Check(blackstart.OpContext(ctx, &checkOp))
+	require.NoError(t, err)
+	require.True(t, managed)
+}
+
+// TestPostgresConnectUser tests an IAM-authenticated connection to a live PostgreSQL instance.
+func TestPostgresConnectUser(t *testing.T) {
 
 	// This is a live test, the cloud config pulls settings from the environment.
 	testConfig := map[string]string{
@@ -130,6 +199,21 @@ func TestConnectUser(t *testing.T) {
 	instance := testConfig[inputInstance]
 	project := testConfig[inputProject]
 	dbName := testConfig[inputDatabase]
+	creds, err := cloud.DefaultCredentials(ctx)
+	require.NoError(t, err)
+	iamIdentity, err := cloud.IamUser(ctx, creds)
+	require.NoError(t, err)
+	username, err := postgresAdcIamUser(ctx)
+	require.NoError(t, err)
+	ensureLiveCloudSQLIAMUser(
+		t,
+		ctx,
+		project,
+		testConfig[inputRegion],
+		instance,
+		iamIdentity,
+		iamUserType(creds, iamIdentity),
+	)
 
 	connConfig := connectionConfig{
 		instance: instance,
@@ -142,9 +226,6 @@ func TestConnectUser(t *testing.T) {
 	}
 
 	// Connect to the instance and run the query
-	username, err := postgresAdcIamUser(ctx)
-	require.NoError(t, err)
-
 	dsn := cloudsqlPostgresIamDsn(instanceIdentifier, dbName, username)
 
 	db, err := sql.Open(sqlDriverPostgresIam, dsn)
@@ -158,7 +239,68 @@ func TestConnectUser(t *testing.T) {
 	t.Logf("Query result: %d", result)
 }
 
-func TestConnectSvcAcct(t *testing.T) {
+// TestMySQLConnectUser tests an IAM-authenticated connection to a live MySQL instance.
+func TestMySQLConnectUser(t *testing.T) {
+	testConfig := map[string]string{}
+	for _, key := range []string{inputProject, inputInstance} {
+		testConfig[key] = util.GetTestEnvRequiredVar(t, mysqlLiveModulePackage, key)
+	}
+	for _, key := range []string{inputRegion, inputDatabase, inputUser, inputConnectionType} {
+		if value := util.GetTestEnvOptionalVar(t, mysqlLiveModulePackage, key); value != "" {
+			testConfig[key] = value
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	creds, err := cloud.DefaultCredentials(ctx)
+	require.NoError(t, err)
+	iamIdentity := testConfig[inputUser]
+	if iamIdentity == "" {
+		iamIdentity, err = cloud.IamUser(ctx, creds)
+		require.NoError(t, err)
+	}
+	ensureLiveCloudSQLIAMUser(
+		t,
+		ctx,
+		testConfig[inputProject],
+		testConfig[inputRegion],
+		testConfig[inputInstance],
+		iamIdentity,
+		iamUserType(creds, iamIdentity),
+	)
+	username, err := mysqlIamUser(iamIdentity)
+	require.NoError(t, err)
+
+	connConfig := connectionConfig{
+		instance: testConfig[inputInstance],
+		project:  testConfig[inputProject],
+		region:   testConfig[inputRegion],
+		creds:    creds,
+	}
+	instanceIdentifier, err := connConfig.connectionIdentifier(ctx)
+	require.NoError(t, err)
+
+	driver := sqlDriverMySQLIam
+	if strings.EqualFold(testConfig[inputConnectionType], "PRIVATE_IP") {
+		driver = sqlDriverMySQLIamPrivateIp
+	}
+	db, err := sql.Open(
+		driver,
+		cloudsqlMySQLDsn(driver, instanceIdentifier, testConfig[inputDatabase], username, ""),
+	)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	var result int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&result))
+	require.Equal(t, 1, result)
+}
+
+// TestPostgresConnectSvcAcct tests a service-account connection to a live PostgreSQL instance.
+func TestPostgresConnectSvcAcct(t *testing.T) {
 	// This is a live test, the cloud config pulls settings from the environment.
 	testConfig := map[string]string{
 		inputDatabase: "postgres",
@@ -225,6 +367,15 @@ func TestConnectSvcAcct(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Error finding IAM user: %v", err)
 	}
+	ensureLiveCloudSQLIAMUser(
+		t,
+		ctx,
+		project,
+		testConfig[inputRegion],
+		instance,
+		userId,
+		iamUserType(creds, userId),
+	)
 
 	dsn := cloudsqlPostgresIamDsn(instanceIdentifier, dbName, userId)
 
@@ -253,6 +404,48 @@ func TestConnectSvcAcct(t *testing.T) {
 	}
 
 	require.Equal(t, 1, result)
+}
+
+// ensureLiveCloudSQLIAMUser creates the IAM database user needed by live connection tests.
+func ensureLiveCloudSQLIAMUser(
+	t *testing.T,
+	ctx context.Context,
+	project string,
+	region string,
+	instance string,
+	iamIdentity string,
+	userType string,
+) {
+	t.Helper()
+	op := blackstart.Operation{
+		Inputs: map[string]blackstart.Input{
+			inputInstance: blackstart.NewInputFromValue(instance),
+			inputProject:  blackstart.NewInputFromValue(project),
+			inputRegion:   blackstart.NewInputFromValue(region),
+			inputUser:     blackstart.NewInputFromValue(iamIdentity),
+			inputUserType: blackstart.NewInputFromValue(userType),
+		},
+		Id:     "ensure-live-iam-user",
+		Name:   "ensure-live-iam-user",
+		Module: "google_cloudsql_user",
+	}
+
+	module := NewCloudSqlUser()
+	exists, err := module.Check(blackstart.OpContext(ctx, &op))
+	require.NoError(t, err)
+	if exists {
+		return
+	}
+
+	require.NoError(t, module.Set(blackstart.OpContext(ctx, &op)))
+	t.Cleanup(
+		func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			op.DoesNotExist = true
+			_ = module.Set(blackstart.OpContext(cleanupCtx, &op))
+		},
+	)
 }
 
 func TestIsManagedInstanceBootstrapConnectionError(t *testing.T) {
