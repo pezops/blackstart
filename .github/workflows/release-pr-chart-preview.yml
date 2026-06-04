@@ -1,0 +1,62 @@
+name: Release PR Chart Preview
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .release-please-manifest.json
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  chart-preview:
+    name: Build Helm Chart Index Preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release PR
+        uses: actions/checkout@v6
+
+      - name: Resolve proposed version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -er '.["."]' .release-please-manifest.json)
+          if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid proposed version: ${VERSION}"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Build chart index preview
+        uses: actions/github-script@v8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHART_INDEX_OUTPUT: /tmp/chart-preview/index.yaml
+          CHART_EXISTING_INDEX_URL: https://pezops.github.io/blackstart/charts/index.yaml
+          CHART_INCLUDE_LOCAL: "true"
+          CHART_LOCAL_VERSION: ${{ steps.version.outputs.version }}
+          CHART_LOCAL_TAG: ${{ steps.version.outputs.tag }}
+          CHART_REQUIRE_VERSION: ${{ steps.version.outputs.version }}
+          CHART_PRINT_OUTPUT: "true"
+        with:
+          script: |
+            const buildChartIndex = require('./.github/scripts/build-chart-index.js');
+            await buildChartIndex({ github, context, core });
+
+      - name: Upload chart index preview artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: chart-index-preview-${{ steps.version.outputs.version }}
+          path: /tmp/chart-preview/index.yaml
+          if-no-files-found: error
