@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	cloud.google.com/go/cloudsqlconn v1.21.0
 	cloud.google.com/go/compute/metadata v0.9.0
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/lib/pq v1.12.3
