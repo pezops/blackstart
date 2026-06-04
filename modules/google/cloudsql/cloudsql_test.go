@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/sqladmin/v1"
 )
 
 func testCredentialsTypeFromJSON(t *testing.T, credJSON string) google.CredentialsType {
@@ -113,6 +114,208 @@ func TestCloudsqlPostgresBuiltInDsn(t *testing.T) {
 	expected := "host=project:region:instance user=testuser password=testpass dbname=testdb sslmode=disable"
 	actual := cloudsqlPostgresBuiltInDsn(instanceIdentifier, dbname, username, password)
 	assert.Equal(t, expected, actual)
+}
+
+func TestCloudsqlMySQLDsn(t *testing.T) {
+	actual := cloudsqlMySQLDsn(
+		sqlDriverMySQLIam,
+		"project:region:instance",
+		"testdb",
+		"testuser",
+		"",
+	)
+	assert.Equal(
+		t,
+		"testuser@cloudsql-mysql-iam(project:region:instance)/testdb?parseTime=true",
+		actual,
+	)
+}
+
+func TestMySQLIamUser(t *testing.T) {
+	tests := map[string]struct {
+		identity string
+		want     string
+		wantErr  bool
+	}{
+		"returns local part": {
+			identity: "service-account@project.iam.gserviceaccount.com",
+			want:     "service-account",
+		},
+		"rejects uppercase identity": {
+			identity: "Person@example.com",
+			wantErr:  true,
+		},
+		"rejects non-email identity": {
+			identity: "person",
+			wantErr:  true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := mysqlIamUser(tt.identity)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestInstanceEngine(t *testing.T) {
+	tests := map[string]struct {
+		version string
+		want    string
+	}{
+		"postgres":   {version: "POSTGRES_17", want: "POSTGRES"},
+		"mysql":      {version: "MYSQL_8_4", want: "MYSQL"},
+		"sql server": {version: "SQLSERVER_2022_STANDARD", want: "SQLSERVER"},
+		"unknown":    {version: "OTHER", want: "UNKNOWN"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, instanceEngine(tt.version))
+		})
+	}
+}
+
+func TestMySQLManagedInstanceSupported(t *testing.T) {
+	tests := map[string]struct {
+		version string
+		want    bool
+	}{
+		"mysql 8.0": {version: "MYSQL_8_0", want: true},
+		"mysql 8.4": {version: "MYSQL_8_4", want: true},
+		"mysql 9.0": {version: "MYSQL_9_0", want: true},
+		"mysql 5.7": {version: "MYSQL_5_7"},
+		"postgres":  {version: "POSTGRES_17"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, mysqlManagedInstanceSupported(tt.version))
+		})
+	}
+}
+
+func TestMySQLIamUserSupported(t *testing.T) {
+	tests := map[string]struct {
+		version string
+		want    bool
+	}{
+		"mysql 5.6": {version: "MYSQL_5_6"},
+		"mysql 5.7": {version: "MYSQL_5_7", want: true},
+		"mysql 8.0": {version: "MYSQL_8_0", want: true},
+		"mysql 8.4": {version: "MYSQL_8_4", want: true},
+		"mysql 9.0": {version: "MYSQL_9_0", want: true},
+		"postgres":  {version: "POSTGRES_17"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, mysqlIamUserSupported(tt.version))
+		})
+	}
+}
+
+func TestMySQLVersionNumbers(t *testing.T) {
+	tests := map[string]struct {
+		version   string
+		wantMajor int
+		wantMinor int
+		wantErr   bool
+	}{
+		"mysql 5.7": {
+			version:   "MYSQL_5_7",
+			wantMajor: 5,
+			wantMinor: 7,
+		},
+		"mysql 8.4": {
+			version:   "MYSQL_8_4",
+			wantMajor: 8,
+			wantMinor: 4,
+		},
+		"future mysql version": {
+			version:   "MYSQL_10_2",
+			wantMajor: 10,
+			wantMinor: 2,
+		},
+		"normalizes case and whitespace": {
+			version:   " mysql_9_1 ",
+			wantMajor: 9,
+			wantMinor: 1,
+		},
+		"rejects postgres": {
+			version: "POSTGRES_17",
+			wantErr: true,
+		},
+		"rejects missing minor": {
+			version: "MYSQL_8",
+			wantErr: true,
+		},
+		"rejects non-numeric major": {
+			version: "MYSQL_NEXT_0",
+			wantErr: true,
+		},
+		"rejects non-numeric minor": {
+			version: "MYSQL_8_NEXT",
+			wantErr: true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			major, minor, err := mysqlVersionNumbers(tt.version)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantMajor, major)
+			assert.Equal(t, tt.wantMinor, minor)
+		})
+	}
+}
+
+func TestInstanceIamAuthenticationEnabled(t *testing.T) {
+	tests := map[string]struct {
+		instance *sqladmin.DatabaseInstance
+		want     bool
+	}{
+		"postgres flag": {
+			instance: &sqladmin.DatabaseInstance{Settings: &sqladmin.Settings{
+				DatabaseFlags: []*sqladmin.DatabaseFlags{
+					{Name: "cloudsql.iam_authentication", Value: "on"},
+				},
+			}},
+			want: true,
+		},
+		"mysql flag": {
+			instance: &sqladmin.DatabaseInstance{Settings: &sqladmin.Settings{
+				DatabaseFlags: []*sqladmin.DatabaseFlags{
+					{Name: "cloudsql_iam_authentication", Value: "ON"},
+				},
+			}},
+			want: true,
+		},
+		"missing settings": {
+			instance: &sqladmin.DatabaseInstance{},
+		},
+		"later enabled flag": {
+			instance: &sqladmin.DatabaseInstance{Settings: &sqladmin.Settings{
+				DatabaseFlags: []*sqladmin.DatabaseFlags{
+					{Name: "cloudsql.iam_authentication", Value: "off"},
+					{Name: "cloudsql_iam_authentication", Value: "on"},
+				},
+			}},
+			want: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, instanceIamAuthenticationEnabled(tt.instance))
+		})
+	}
 }
 
 func TestTargetConnectionConfig_connectionIdentifier(t *testing.T) {

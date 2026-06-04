@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"cloud.google.com/go/cloudsqlconn"
+	cloudsqlmysql "cloud.google.com/go/cloudsqlconn/mysql/mysql"
 	"cloud.google.com/go/cloudsqlconn/postgres/pgxv5"
+	gomysql "github.com/go-sql-driver/mysql"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
@@ -38,6 +41,22 @@ const (
 	// built-in / static credentials connecting via a VPC and private IP address.
 	sqlDriverPostgresPrivateIp = "cloudsql-postgres-private"
 
+	// sqlDriverMySQLIam is the driver name for connecting to Cloud SQL for MySQL instances
+	// using IAM credentials.
+	sqlDriverMySQLIam = "cloudsql-mysql-iam"
+
+	// sqlDriverMySQLIamPrivateIp is the driver name for connecting to Cloud SQL for MySQL
+	// instances using IAM credentials via a VPC and private IP address.
+	sqlDriverMySQLIamPrivateIp = "cloudsql-mysql-iam-private"
+
+	// sqlDriverMySQL is the driver name for connecting to Cloud SQL for MySQL instances using
+	// built-in / static credentials.
+	sqlDriverMySQL = "cloudsql-mysql"
+
+	// sqlDriverMySQLPrivateIp is the driver name for connecting to Cloud SQL for MySQL instances
+	// using built-in / static credentials via a VPC and private IP address.
+	sqlDriverMySQLPrivateIp = "cloudsql-mysql-private"
+
 	// userBuiltIn is the user type for built-in users with static credentials. We don't
 	// normally allow this, but it is used internally to bootstrap a managed instance.
 	userBuiltIn = "BUILT_IN"
@@ -65,11 +84,10 @@ func init() {
 	blackstart.RegisterPathName("cloudsql", "Cloud SQL")
 
 	// Register global drivers that can be used by the database/sql package with the new package
-	// to connect to Cloud SQL, cloud.google.com/go/cloudsqlconn. This has a postgres subpackage
-	// that is used to connect to Cloud SQL for PostgreSQL instances without the need for the Cloud SQL
-	// proxy.
+	// to connect to Cloud SQL, cloud.google.com/go/cloudsqlconn. Its PostgreSQL and MySQL
+	// subpackages connect without the need for the Cloud SQL proxy.
 	//
-	// To leverage a credentials file, a driver per credential is needed tht specifies the file
+	// To leverage a credentials file, a driver per credential is needed that specifies the file
 	// or contents.
 	_, _ = pgxv5.RegisterDriver(sqlDriverPostgresIam, cloudsqlconn.WithIAMAuthN())
 	_, _ = pgxv5.RegisterDriver(
@@ -84,6 +102,17 @@ func init() {
 		cloudsqlconn.WithDefaultDialOptions(
 			cloudsqlconn.WithPrivateIP(),
 		),
+	)
+	_, _ = cloudsqlmysql.RegisterDriver(sqlDriverMySQLIam, cloudsqlconn.WithIAMAuthN())
+	_, _ = cloudsqlmysql.RegisterDriver(
+		sqlDriverMySQLIamPrivateIp,
+		cloudsqlconn.WithIAMAuthN(),
+		cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPrivateIP()),
+	)
+	_, _ = cloudsqlmysql.RegisterDriver(sqlDriverMySQL)
+	_, _ = cloudsqlmysql.RegisterDriver(
+		sqlDriverMySQLPrivateIp,
+		cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPrivateIP()),
 	)
 
 	// Quick check to make sure these shorter constants here did not change from the upstream values.
@@ -116,6 +145,10 @@ type connectionConfig struct {
 	// region is the region where the Cloud SQL instance is located. If not provided, the region
 	// will attempt to be determined using the sqladmin API.
 	region string
+
+	// engine and databaseVersion are inferred from Cloud SQL instance metadata.
+	engine          string
+	databaseVersion string
 
 	// user is the username to connect to the Cloud SQL instance. When using a service account
 	// ending in `iam.gserviceaccount.com`, the username must be truncated after the `.iam` to
@@ -259,6 +292,81 @@ func postgresIamUser(ctx context.Context, creds *google.Credentials) (string, er
 	return u, nil
 }
 
+// mysqlIamUser returns the local database username Cloud SQL for MySQL derives from an IAM
+// identity. Cloud SQL truncates the identity at the first @ character.
+func mysqlIamUser(iamIdentity string) (string, error) {
+	identity := strings.TrimSpace(iamIdentity)
+	if identity == "" {
+		return "", fmt.Errorf("IAM identity cannot be empty")
+	}
+	if identity != strings.ToLower(identity) {
+		return "", fmt.Errorf("MySQL IAM identity must be lowercase: %s", identity)
+	}
+	username, _, found := strings.Cut(identity, "@")
+	if !found || username == "" {
+		return "", fmt.Errorf("MySQL IAM identity must be an email address: %s", identity)
+	}
+	return username, nil
+}
+
+func instanceEngine(databaseVersion string) string {
+	version := strings.ToUpper(strings.TrimSpace(databaseVersion))
+	switch {
+	case strings.HasPrefix(version, "POSTGRES"):
+		return "POSTGRES"
+	case strings.HasPrefix(version, "MYSQL"):
+		return "MYSQL"
+	case strings.HasPrefix(version, "SQLSERVER"):
+		return "SQLSERVER"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func mysqlManagedInstanceSupported(databaseVersion string) bool {
+	major, _, err := mysqlVersionNumbers(databaseVersion)
+	return err == nil && major >= 8
+}
+
+func mysqlIamUserSupported(databaseVersion string) bool {
+	major, minor, err := mysqlVersionNumbers(databaseVersion)
+	return err == nil && (major > 5 || major == 5 && minor >= 7)
+}
+
+func mysqlVersionNumbers(databaseVersion string) (int, int, error) {
+	parts := strings.Split(strings.ToUpper(strings.TrimSpace(databaseVersion)), "_")
+	if len(parts) < 3 || parts[0] != "MYSQL" {
+		return 0, 0, fmt.Errorf("invalid Cloud SQL MySQL database version: %s", databaseVersion)
+	}
+	major, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid Cloud SQL MySQL major version %q: %w", parts[1], err)
+	}
+	minor, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid Cloud SQL MySQL minor version %q: %w", parts[2], err)
+	}
+	return major, minor, nil
+}
+
+func instanceIamAuthenticationEnabled(instance *sqladmin.DatabaseInstance) bool {
+	if instance == nil || instance.Settings == nil {
+		return false
+	}
+	for _, flag := range instance.Settings.DatabaseFlags {
+		if flag == nil {
+			continue
+		}
+		if strings.EqualFold(flag.Name, "cloudsql.iam_authentication") ||
+			strings.EqualFold(flag.Name, "cloudsql_iam_authentication") {
+			if strings.EqualFold(flag.Value, "on") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // iamUserType returns the Cloud SQL IAM user type for the resolved IAM identity. It classifies
 // service accounts by identity shape first, then falls back to credential JSON metadata.
 func iamUserType(creds *google.Credentials, iamUser string) string {
@@ -300,4 +408,15 @@ func cloudsqlPostgresBuiltInDsn(instanceIdentifier, dbname, username, password s
 		"host=%s user=%s password=%s dbname=%s sslmode=disable",
 		instanceIdentifier, username, password, dbname,
 	)
+}
+
+func cloudsqlMySQLDsn(driverNetwork, instanceIdentifier, dbname, username, password string) string {
+	cfg := gomysql.NewConfig()
+	cfg.User = username
+	cfg.Passwd = password
+	cfg.DBName = dbname
+	cfg.Net = driverNetwork
+	cfg.Addr = instanceIdentifier
+	cfg.ParseTime = true
+	return cfg.FormatDSN()
 }

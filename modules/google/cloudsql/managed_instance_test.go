@@ -10,6 +10,7 @@ import (
 
 	"cloud.google.com/go/cloudsqlconn"
 	"cloud.google.com/go/cloudsqlconn/postgres/pgxv5"
+	gomysql "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2/google"
@@ -247,4 +248,84 @@ func TestConnectSvcAcct(t *testing.T) {
 	}
 
 	require.Equal(t, 1, result)
+}
+
+func TestIsManagedInstanceBootstrapConnectionError(t *testing.T) {
+	tests := map[string]struct {
+		err    error
+		engine string
+		want   bool
+	}{
+		"mysql access denied": {
+			err:    &gomysql.MySQLError{Number: 1045, Message: "access denied"},
+			engine: "MYSQL",
+			want:   true,
+		},
+		"mysql unknown database": {
+			err:    &gomysql.MySQLError{Number: 1049, Message: "unknown database"},
+			engine: "MYSQL",
+		},
+		"postgres unrelated error": {
+			err:    assert.AnError,
+			engine: "POSTGRES",
+		},
+		"postgres invalid password": {
+			err:    &testError{message: "connection failed: SQLSTATE 28P01"},
+			engine: "POSTGRES",
+			want:   true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isManagedInstanceBootstrapConnectionError(tt.err, tt.engine))
+		})
+	}
+}
+
+func TestManagedInstanceMySQLDrivers(t *testing.T) {
+	tests := map[string]struct {
+		connectionType string
+		iamDriver      string
+		builtinDriver  string
+	}{
+		"public IP": {
+			connectionType: "PUBLIC_IP",
+			iamDriver:      sqlDriverMySQLIam,
+			builtinDriver:  sqlDriverMySQL,
+		},
+		"private IP": {
+			connectionType: "PRIVATE_IP",
+			iamDriver:      sqlDriverMySQLIamPrivateIp,
+			builtinDriver:  sqlDriverMySQLPrivateIp,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			op := blackstart.Operation{
+				Inputs: map[string]blackstart.Input{
+					inputConnectionType: blackstart.NewInputFromValue(tt.connectionType),
+				},
+				Module: "google_cloudsql_managed_instance",
+			}
+			ctx := blackstart.OpContext(context.Background(), &op)
+			m := managedInstance{target: &connectionConfig{engine: "MYSQL"}}
+
+			iamDriver, err := m.getDriver(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.iamDriver, iamDriver)
+
+			builtinDriver, err := m.getBuiltinDriver(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.builtinDriver, builtinDriver)
+		})
+	}
+}
+
+type testError struct {
+	message string
+}
+
+func (e *testError) Error() string {
+	return e.message
 }

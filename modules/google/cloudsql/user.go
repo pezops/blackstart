@@ -2,6 +2,7 @@ package cloudsql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -24,6 +25,7 @@ func init() {
 
 var _ blackstart.Module = &user{}
 var requiredUserParameters = []string{inputInstance, inputUser, inputUserType}
+var ErrMySQLUserCollision = errors.New("MySQL user local-name collision")
 
 // Explicitly choosing to support only IAM service accounts and IAM users / groups. Built-in users
 // are only used temporarily by Blackstart to initially set up managed instances.
@@ -51,13 +53,17 @@ Ensures that a Cloud SQL user exists with the specified parameters. In alignment
 **Notes**
 
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not supported by this module. Use Active Directory authentication instead for SQL Server instances.
+- Cloud SQL for PostgreSQL stores service-account usernames without the '''.gserviceaccount.com''' suffix, so the database username ends with '''@<project>.iam'''.
+- Cloud SQL for MySQL 5.7+ IAM users are supported.
+- Cloud SQL for MySQL stores IAM database usernames as the lowercase portion before '''@'''. IAM identities with the same local part cannot coexist on one MySQL instance.
+- A built-in MySQL user or different IAM user type with the same local database username is reported as a conflict instead of being replaced.
 `,
 		),
 		Requirements: []string{
 			"The Cloud SQL instance must exist.",
 			"The IAM user or service account specified must exist.",
 			"The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled on the project.",
-			"The instance must have [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.",
+			"The instance must have IAM authentication enabled for [PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) or [MySQL](https://docs.cloud.google.com/sql/docs/mysql/iam-authentication#configure-iam-db-auth) with the engine-specific authentication flag set to `on`.",
 			"The Blackstart service account must have permission to manage the database instance. The suggested pre-defined role is [`roles/cloudsql.admin`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.admin).",
 		},
 		Inputs: map[string]blackstart.InputValue{
@@ -89,7 +95,7 @@ Ensures that a Cloud SQL user exists with the specified parameters. In alignment
 		},
 		Outputs: map[string]blackstart.OutputValue{
 			outputUser: {
-				Description: "The name of the Cloud SQL user that was created or managed.",
+				Description: "The database username of the Cloud SQL user that was created or managed. For MySQL IAM users, this is the local part before `@`.",
 				Type:        reflect.TypeFor[string](),
 			},
 		},
@@ -153,17 +159,24 @@ func (c *user) Check(ctx blackstart.ModuleContext) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if err = validateMySQLUserCollision(usersList, u.Name, c.target.userType, c.target.engine); err != nil {
+		return false, err
+	}
 
 	var res bool
 	if ctx.DoesNotExist() {
-		res = !cloudSqlUserExists(usersList, u.Name)
+		res = !cloudSqlUserExists(usersList, u.Name, c.target.engine)
 
 	} else {
-		res = cloudSqlUserIsCorrect(usersList, u.Name, c.target.userType)
+		res = cloudSqlUserIsCorrect(usersList, u.Name, c.target.userType, c.target.engine)
 	}
 
 	if res && !ctx.DoesNotExist() {
-		err = ctx.Output(outputUser, u.Name)
+		outputName, outputErr := c.databaseUsername(u.Name)
+		if outputErr != nil {
+			return false, outputErr
+		}
+		err = ctx.Output(outputUser, outputName)
 		if err != nil {
 			return false, err
 		}
@@ -191,7 +204,11 @@ func (c *user) Set(ctx blackstart.ModuleContext) error {
 		return err
 	}
 
-	err = ctx.Output(outputUser, u.Name)
+	outputName, err := c.databaseUsername(u.Name)
+	if err != nil {
+		return err
+	}
+	err = ctx.Output(outputUser, outputName)
 	if err != nil {
 		return err
 	}
@@ -223,6 +240,28 @@ func (c *user) setup(mctx blackstart.ModuleContext) error {
 	if err != nil {
 		return fmt.Errorf("failed to create SQL Admin service: %w", err)
 	}
+	instance, err := c.sqlService.Instances.Get(c.target.project, c.target.instance).Context(mctx).Do()
+	if err != nil {
+		return fmt.Errorf("failed to get instance %s in project %s: %w", c.target.instance, c.target.project, err)
+	}
+	c.target.engine = instanceEngine(instance.DatabaseVersion)
+	c.target.databaseVersion = instance.DatabaseVersion
+	if c.target.engine == "SQLSERVER" || c.target.engine == "UNKNOWN" {
+		return fmt.Errorf("the Cloud SQL engine %q is not supported by google_cloudsql_user", c.target.engine)
+	}
+	if c.target.engine == "MYSQL" && !mysqlIamUserSupported(c.target.databaseVersion) {
+		return fmt.Errorf(
+			"google_cloudsql_user supports MySQL 5.7+; instance uses %s",
+			c.target.databaseVersion,
+		)
+	}
+	if !instanceIamAuthenticationEnabled(instance) {
+		return fmt.Errorf(
+			"instance %s in project %s does not have IAM database authentication enabled",
+			c.target.instance,
+			c.target.project,
+		)
+	}
 
 	return nil
 }
@@ -230,18 +269,22 @@ func (c *user) setup(mctx blackstart.ModuleContext) error {
 // user creates the sqladmin.User object based on the target connectionConfig.
 func (c *user) user(ctx blackstart.ModuleContext) (*sqladmin.User, error) {
 	var err error
-	c.target, err = createTargetConnectionConfig(ctx)
-	if err != nil {
-		return nil, err
+	if c.target == nil {
+		c.target, err = createTargetConnectionConfig(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	username := c.target.user
 
 	switch c.target.userType {
 	case userCloudIamServiceAccount:
-		username, err = normalizeCloudSQLServiceAccountUsername(username, c.target.project)
-		if err != nil {
-			return nil, err
+		if c.target.engine != "MYSQL" {
+			username, err = normalizeCloudSQLServiceAccountUsername(username, c.target.project)
+			if err != nil {
+				return nil, err
+			}
 		}
 	default:
 	}
@@ -258,6 +301,13 @@ func (c *user) user(ctx blackstart.ModuleContext) (*sqladmin.User, error) {
 	}
 
 	return sqlUser, nil
+}
+
+func (c *user) databaseUsername(iamIdentity string) (string, error) {
+	if c.target != nil && c.target.engine == "MYSQL" && c.target.userType != userBuiltIn {
+		return mysqlIamUser(iamIdentity)
+	}
+	return iamIdentity, nil
 }
 
 // normalizeCloudSQLServiceAccountUsername normalizes service-account identities into CloudSQL
@@ -296,7 +346,10 @@ func (c *user) createUser(ctx context.Context, user *sqladmin.User) error {
 	if err != nil {
 		return err
 	}
-	if cloudSqlUserExists(userList, c.target.user) {
+	if err = validateMySQLUserCollision(userList, user.Name, c.target.userType, c.target.engine); err != nil {
+		return err
+	}
+	if cloudSqlUserExists(userList, c.target.user, c.target.engine) {
 		err = c.deleteUser(ctx, user)
 		if err != nil {
 			return err
@@ -346,14 +399,25 @@ func (c *user) deleteUser(ctx context.Context, user *sqladmin.User) error {
 
 // cloudSqlUserIsCorrect checks if the target user is in the list of users, and if it is the
 // correct type.
-func cloudSqlUserIsCorrect(usersList *sqladmin.UsersListResponse, targetUser string, targetUserType string) bool {
-	if targetUserType == userBuiltIn {
+func cloudSqlUserIsCorrect(
+	usersList *sqladmin.UsersListResponse, targetUser string, targetUserType string, engine ...string,
+) bool {
+	isBuiltIn := targetUserType == userBuiltIn
+	if isBuiltIn {
 		// The API returns a blank string for built-in users
 		targetUserType = ""
 	}
 
+	targetName := targetUser
+	if len(engine) > 0 && engine[0] == "MYSQL" && !isBuiltIn {
+		var err error
+		targetName, err = mysqlIamUser(targetUser)
+		if err != nil {
+			return false
+		}
+	}
 	for _, u := range usersList.Items {
-		if u.Name == targetUser {
+		if u.Name == targetName {
 			return u.Type == targetUserType
 		}
 	}
@@ -361,16 +425,49 @@ func cloudSqlUserIsCorrect(usersList *sqladmin.UsersListResponse, targetUser str
 }
 
 // cloudSqlUserExists checks if the connectionConfig user is in the list of users.
-func cloudSqlUserExists(usersList *sqladmin.UsersListResponse, targetUser string) bool {
+func cloudSqlUserExists(usersList *sqladmin.UsersListResponse, targetUser string, engine ...string) bool {
 	if usersList == nil {
 		return false
 	}
+	targetName := targetUser
+	if len(engine) > 0 && engine[0] == "MYSQL" {
+		if normalized, err := mysqlIamUser(targetUser); err == nil {
+			targetName = normalized
+		}
+	}
 	for _, user := range usersList.Items {
-		if user.Name == targetUser {
+		if user.Name == targetName {
 			return true
 		}
 	}
 	return false
+}
+
+func validateMySQLUserCollision(
+	usersList *sqladmin.UsersListResponse, targetUser string, targetUserType string, engine string,
+) error {
+	if engine != "MYSQL" || targetUserType == userBuiltIn || usersList == nil {
+		return nil
+	}
+	targetName, err := mysqlIamUser(targetUser)
+	if err != nil {
+		return err
+	}
+	for _, existingUser := range usersList.Items {
+		if existingUser.Name == targetName && existingUser.Type != targetUserType {
+			existingType := existingUser.Type
+			if existingType == "" {
+				existingType = userBuiltIn
+			}
+			return fmt.Errorf(
+				"%w: user %q conflicts with existing %s user of the same local name",
+				ErrMySQLUserCollision,
+				targetName,
+				existingType,
+			)
+		}
+	}
+	return nil
 }
 
 // createTargetConnectionConfig creates the target connectionConfig from the module context inputs.
