@@ -8,6 +8,10 @@
 - Add `userinfo.email` scope to GCP access token (#72) by @mbrancato
 - Version missing in rebuild (#74) by @mbrancato
 
+### 📚 Documentation
+
+- Add terraform deploy docs for GCP Cloud Run (#75) by @mbrancato
+
 ### ⚙️ Miscellaneous Tasks
 
 - Add automatic rebuild of the latest release (#73) by @mbrancato
