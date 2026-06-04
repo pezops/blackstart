@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strings"
 
+	gomysql "github.com/go-sql-driver/mysql"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sqladmin/v1"
 
@@ -27,12 +29,17 @@ var _ blackstart.Module = &managedInstance{}
 var _ io.Closer = &managedInstance{}
 var requiredCloudSqlManagedInstanceParameters = []string{inputInstance}
 
-const checkCloudSqlSuperuserRoleQuery = `
+const checkPostgresCloudSqlSuperuserRoleQuery = `
 SELECT 1
 FROM pg_roles AS r
 JOIN pg_auth_members AS m ON r.oid = m.roleid
 JOIN pg_roles AS u ON u.oid = m.member
 WHERE u.rolname = CURRENT_USER AND r.rolname = 'cloudsqlsuperuser';`
+
+const checkMySQLCloudSqlSuperuserRoleQuery = `
+SELECT EXISTS(
+  SELECT 1 FROM information_schema.enabled_roles WHERE ROLE_NAME = 'cloudsqlsuperuser'
+);`
 
 // NewCloudSqlManagedInstance creates a new instance of the Cloud SQL managed instance module.
 func NewCloudSqlManagedInstance() blackstart.Module {
@@ -52,9 +59,9 @@ func (m *managedInstance) Info() blackstart.ModuleInfo {
 		Name: "Google Cloud SQL Managed database instance",
 		Description: util.CleanString(
 			`
-Manages a Google Cloud SQL instance. When managed, the module will ensure that the current workload 
-identity is a member of the '''cloudsqlsuperuser''' role on the instance. The instance is then
-usable for further operations.
+Manages a Google Cloud SQL for PostgreSQL or MySQL instance. When managed, the module ensures the
+current workload identity is a member of the '''cloudsqlsuperuser''' role on the instance. The
+instance is then usable for further operations.
 
 **Notes**
 
@@ -69,12 +76,14 @@ usable for further operations.
   of the target object. Otherwise, the Blackstart service account will need to be granted the same 
   permission '''WITH GRANT OPTION''' on the target object to be able to manage permissions for other users.
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not supported by this module.
+- Cloud SQL for MySQL 5.6 is not supported because [IAM database authentication is not supported for MySQL 5.6](https://docs.cloud.google.com/sql/docs/mysql/iam-authentication#restrictions).
+- Cloud SQL for MySQL 5.7 IAM users are supported by '''google_cloudsql_user''', but managed-instance administration requires the [role support available in MySQL 8+](https://docs.cloud.google.com/sql/docs/mysql/users#mysql-8.0-user-privileges).
 `,
 		),
 		Requirements: []string{
 			"The Cloud SQL instance must exist.",
 			"The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled on the project.",
-			"The instance must have [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.",
+			"The instance must have IAM authentication enabled for [PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth) or [MySQL](https://docs.cloud.google.com/sql/docs/mysql/iam-authentication#configure-iam-db-auth) with the engine-specific authentication flag set to `on`.",
 			"The Blackstart service account must have permission to manage, connect, and login to the database instance. Suggested pre-defined roles are [`roles/cloudsql.admin`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.admin), [`roles/cloudsql.client`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.client), and [`roles/cloudsql.instanceUser`](https://docs.cloud.google.com/iam/docs/roles-permissions/cloudsql#cloudsql.instanceUser).",
 		},
 		Inputs: map[string]blackstart.InputValue{
@@ -89,10 +98,9 @@ usable for further operations.
 				Required:    false,
 			},
 			inputDatabase: {
-				Description: "Database name to connect to and return in the managed connection.",
+				Description: "Database name to connect to and return in the managed connection. Defaults to `postgres` for PostgreSQL and no database for MySQL.",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
-				Default:     "postgres",
 			},
 			inputUser: {
 				Description: "The user to manage. If not provided, the current user will be used.",
@@ -194,31 +202,9 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		return false, err
 	}
 
-	// Check if the instance exists
-	exists, err := m.checkInstanceExists(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to check instance existence: %w", err)
-	}
-
-	if !exists {
-		return false, fmt.Errorf("instance %s does not exist in project %s", m.target.instance, m.target.project)
-	}
-
-	iamAuthEnabled, err := m.checkInstanceIamAuthenticationEnabled(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to check instance IAM authentication setting: %w", err)
-	}
-	if !iamAuthEnabled {
-		return false, fmt.Errorf(
-			"instance %s in project %s does not have cloudsql.iam_authentication enabled",
-			m.target.instance,
-			m.target.project,
-		)
-	}
-
 	db, err := m.getConnection(ctx)
 	if err != nil {
-		if isManagedInstanceBootstrapConnectionError(err) {
+		if isManagedInstanceBootstrapConnectionError(err, m.target.engine) {
 			// A failed IAM login here commonly means the IAM DB user/role binding has not been
 			// bootstrapped yet. Treat this as "not in desired state" so Set() can reconcile.
 			// For doesNotExist mode, an auth failure indicates the managed user/path is already absent.
@@ -236,9 +222,9 @@ func (m *managedInstance) Check(ctx blackstart.ModuleContext) (bool, error) {
 		}
 	}()
 
-	isAdmin, err := checkIfSuperuser(ctx, db)
+	isAdmin, err := checkIfSuperuser(ctx, db, m.target.engine)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if user is a member of cloudsqladmin role: %w", err)
+		return false, fmt.Errorf("failed to check if user is a member of cloudsqlsuperuser role: %w", err)
 	}
 
 	var res bool
@@ -284,7 +270,14 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 
 	userType := iamUserType(m.creds, iamUser)
 
-	err = validateUser(iamUser)
+	userToValidate := iamUser
+	if m.target.engine == "MYSQL" {
+		userToValidate, err = mysqlIamUser(iamUser)
+		if err != nil {
+			return err
+		}
+	}
+	err = validateUser(userToValidate)
 	if err != nil {
 		return err
 	}
@@ -303,7 +296,10 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	}
 	mgmtUserModule := user{}
 	mgmtUserMctx := blackstart.OpContext(ctx, &mgmtUserOp)
-	mgmtUserExists, _ := mgmtUserModule.Check(mgmtUserMctx)
+	mgmtUserExists, checkErr := mgmtUserModule.Check(mgmtUserMctx)
+	if checkErr != nil && (!ctx.DoesNotExist() || errors.Is(checkErr, ErrMySQLUserCollision)) {
+		return fmt.Errorf("failed to check managed Cloud SQL user: %w", checkErr)
+	}
 
 	// Leave the IAM user in place when disabling management using the `doesNotExist` flag, just
 	// revoke the role. The management user being removed is a very special case. It seems
@@ -315,22 +311,8 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 		}
 	}
 
-	if !ctx.DoesNotExist() {
-		// grant the current user as a member of the cloudsqlsuperuser role
-		_, err = tempDb.ExecContext(ctx, fmt.Sprintf("GRANT cloudsqlsuperuser TO \"%v\" WITH ADMIN OPTION;", iamUser))
-		if err != nil {
-			return fmt.Errorf("failed to grant cloudsqlsuperuser role: %w", err)
-		}
-		_, err = tempDb.ExecContext(ctx, fmt.Sprintf("ALTER ROLE \"%v\" WITH INHERIT CREATEROLE CREATEDB;", iamUser))
-		if err != nil {
-			return fmt.Errorf("failed to update managment role: %w", err)
-		}
-	} else {
-		// revoke the current user as a member of the cloudsqlsuperuser role
-		_, err = tempDb.ExecContext(ctx, fmt.Sprintf("REVOKE cloudsqlsuperuser FROM \"%v\";", iamUser))
-		if err != nil {
-			return fmt.Errorf("failed to revoke cloudsqlsuperuser role: %w", err)
-		}
+	if err = m.setManagedRole(ctx, tempDb, iamUser); err != nil {
+		return err
 	}
 
 	db, err := m.getConnection(ctx)
@@ -351,6 +333,58 @@ func (m *managedInstance) Set(ctx blackstart.ModuleContext) error {
 	keepConnectionOpen = true
 
 	return err
+}
+
+func (m *managedInstance) setManagedRole(ctx blackstart.ModuleContext, db *sql.DB, iamIdentity string) error {
+	switch m.target.engine {
+	case "MYSQL":
+		return setManagedRoleMySQL(ctx, db, iamIdentity)
+	case "POSTGRES":
+		return setManagedRolePostgres(ctx, db, iamIdentity)
+	default:
+		return fmt.Errorf("unsupported Cloud SQL engine for role management: %s", m.target.engine)
+	}
+}
+
+func setManagedRolePostgres(ctx blackstart.ModuleContext, db *sql.DB, iamIdentity string) error {
+	if !ctx.DoesNotExist() {
+		if _, err := db.ExecContext(
+			ctx, fmt.Sprintf("GRANT cloudsqlsuperuser TO \"%v\" WITH ADMIN OPTION;", iamIdentity),
+		); err != nil {
+			return fmt.Errorf("failed to grant cloudsqlsuperuser role: %w", err)
+		}
+		if _, err := db.ExecContext(
+			ctx, fmt.Sprintf("ALTER ROLE \"%v\" WITH INHERIT CREATEROLE CREATEDB;", iamIdentity),
+		); err != nil {
+			return fmt.Errorf("failed to update management role: %w", err)
+		}
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("REVOKE cloudsqlsuperuser FROM \"%v\";", iamIdentity)); err != nil {
+		return fmt.Errorf("failed to revoke cloudsqlsuperuser role: %w", err)
+	}
+	return nil
+}
+
+func setManagedRoleMySQL(ctx blackstart.ModuleContext, db *sql.DB, iamIdentity string) error {
+	username, err := mysqlIamUser(iamIdentity)
+	if err != nil {
+		return err
+	}
+	account := fmt.Sprintf("`%s`@`%%`", strings.ReplaceAll(username, "`", "``"))
+	if ctx.DoesNotExist() {
+		if _, err = db.ExecContext(ctx, "REVOKE `cloudsqlsuperuser` FROM "+account); err != nil {
+			return fmt.Errorf("failed to revoke MySQL cloudsqlsuperuser role: %w", err)
+		}
+		return nil
+	}
+	if _, err = db.ExecContext(ctx, "GRANT `cloudsqlsuperuser` TO "+account+" WITH ADMIN OPTION"); err != nil {
+		return fmt.Errorf("failed to grant MySQL cloudsqlsuperuser role: %w", err)
+	}
+	if _, err = db.ExecContext(ctx, "SET DEFAULT ROLE ALL TO "+account); err != nil {
+		return fmt.Errorf("failed to set default MySQL cloudsqlsuperuser role: %w", err)
+	}
+	return nil
 }
 
 // Close releases any managed database connections.
@@ -417,10 +451,43 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 	if err != nil && !errors.Is(err, blackstart.ErrInputDoesNotExist) {
 		return err
 	}
-	if database == "" {
-		database = "postgres"
-	}
 	m.target.database = database
+
+	m.sqlService, err = sqladmin.NewService(ctx, option.WithUserAgent(blackstart.UserAgent))
+	if err != nil {
+		return fmt.Errorf("failed to create SQL Admin service: %w", err)
+	}
+	instanceResource, err := m.getInstance(ctx)
+	if err != nil {
+		return err
+	}
+	m.target.region = instanceResource.Region
+	m.target.engine = instanceEngine(instanceResource.DatabaseVersion)
+	m.target.databaseVersion = instanceResource.DatabaseVersion
+	switch m.target.engine {
+	case "POSTGRES":
+		if m.target.database == "" {
+			m.target.database = "postgres"
+		}
+	case "MYSQL":
+		if !mysqlManagedInstanceSupported(m.target.databaseVersion) {
+			return fmt.Errorf(
+				"google_cloudsql_managed_instance supports MySQL 8+; instance uses %s",
+				m.target.databaseVersion,
+			)
+		}
+	default:
+		return fmt.Errorf(
+			"the Cloud SQL engine %q is not supported by google_cloudsql_managed_instance", m.target.engine,
+		)
+	}
+	if !instanceIamAuthenticationEnabled(instanceResource) {
+		return fmt.Errorf(
+			"instance %s in project %s does not have IAM database authentication enabled",
+			m.target.instance,
+			m.target.project,
+		)
+	}
 
 	username, err := blackstart.ContextInputAs[string](ctx, inputUser, false)
 	if err != nil && !errors.Is(err, blackstart.ErrInputDoesNotExist) {
@@ -429,17 +496,14 @@ func (m *managedInstance) setup(ctx blackstart.ModuleContext) error {
 	m.target.user = username
 	if m.target.user == "" {
 		var u string
-		u, err = postgresIamUser(ctx, m.creds)
-
+		u, err = cloud.IamUser(ctx, m.creds)
 		if err != nil {
 			return fmt.Errorf("failed to find the current user: %w", err)
 		}
+		if m.target.engine == "POSTGRES" {
+			u = strings.TrimSuffix(u, ".gserviceaccount.com")
+		}
 		m.target.user = u
-	}
-
-	m.sqlService, err = sqladmin.NewService(ctx, option.WithUserAgent(blackstart.UserAgent))
-	if err != nil {
-		return fmt.Errorf("failed to create SQL Admin service: %w", err)
 	}
 
 	return nil
@@ -458,13 +522,22 @@ func (m *managedInstance) getConnection(ctx blackstart.ModuleContext) (*sql.DB, 
 		return nil, fmt.Errorf("failed to resolve managed IAM user")
 	}
 
-	dsn := cloudsqlPostgresIamDsn(dbConnIdentifier, m.target.database, username)
-
 	driver, err := m.getDriver(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get driver: %w", err)
 	}
 
+	var dsn string
+	switch m.target.engine {
+	case "POSTGRES":
+		dsn = cloudsqlPostgresIamDsn(dbConnIdentifier, m.target.database, username)
+	case "MYSQL":
+		username, err = mysqlIamUser(username)
+		if err != nil {
+			return nil, err
+		}
+		dsn = cloudsqlMySQLDsn(driver, dbConnIdentifier, m.target.database, username, "")
+	}
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
@@ -487,8 +560,14 @@ func (m *managedInstance) getDriver(ctx blackstart.ModuleContext) (string, error
 	}
 	switch strings.ToUpper(driver) {
 	case "PUBLIC_IP":
+		if m.target.engine == "MYSQL" {
+			return sqlDriverMySQLIam, nil
+		}
 		return sqlDriverPostgresIam, nil
 	case "PRIVATE_IP", "":
+		if m.target.engine == "MYSQL" {
+			return sqlDriverMySQLIamPrivateIp, nil
+		}
 		return sqlDriverPostgresIamPrivateIp, nil
 	default:
 		return "", fmt.Errorf("invalid connection_type: %s", driver)
@@ -504,8 +583,14 @@ func (m *managedInstance) getBuiltinDriver(ctx blackstart.ModuleContext) (string
 	}
 	switch strings.ToUpper(driver) {
 	case "PUBLIC_IP":
+		if m.target.engine == "MYSQL" {
+			return sqlDriverMySQL, nil
+		}
 		return sqlDriverPostgres, nil
 	case "PRIVATE_IP", "":
+		if m.target.engine == "MYSQL" {
+			return sqlDriverMySQLPrivateIp, nil
+		}
 		return sqlDriverPostgresPrivateIp, nil
 	default:
 		return "", fmt.Errorf("invalid connection_type: %s", driver)
@@ -519,9 +604,12 @@ func (m *managedInstance) getBuiltinDriver(ctx blackstart.ModuleContext) (string
 // operations. Google Cloud SQL grants built-in users (non-IAM) the `cloudsqlsuperuser` role,
 // but IAM users must be explicitly granted the role.
 func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, func() error, error) {
-	const adminDb = "postgres"
 	const adminUser = "blackstart"
 	closer := func() error { return nil }
+	adminDb := "postgres"
+	if m.target.engine == "MYSQL" {
+		adminDb = "mysql"
+	}
 
 	tempPass := util.RandomPassword(22)
 	tempUserOp := blackstart.Operation{
@@ -549,13 +637,17 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 	if err != nil {
 		return nil, closer, fmt.Errorf("failed to get temporary connection identifier: %w", err)
 	}
-	tempConnDsn := cloudsqlPostgresBuiltInDsn(tempInstanceIndentifier, adminDb, adminUser, tempPass)
-
 	driver, err := m.getBuiltinDriver(ctx)
 	if err != nil {
 		return nil, closer, fmt.Errorf("failed to get temporary driver: %w", err)
 	}
 
+	var tempConnDsn string
+	if m.target.engine == "MYSQL" {
+		tempConnDsn = cloudsqlMySQLDsn(driver, tempInstanceIndentifier, adminDb, adminUser, tempPass)
+	} else {
+		tempConnDsn = cloudsqlPostgresBuiltInDsn(tempInstanceIndentifier, adminDb, adminUser, tempPass)
+	}
 	tempDb, err := sql.Open(driver, tempConnDsn)
 	if err != nil {
 		return nil, closer, fmt.Errorf("failed to open temporary database connection: %w", err)
@@ -575,51 +667,26 @@ func (m *managedInstance) tempAdminDb(ctx blackstart.ModuleContext) (*sql.DB, fu
 	return tempDb, closer, nil
 }
 
-// checkInstanceExists checks if the specified Cloud SQL instance exists in the given project.
-func (m *managedInstance) checkInstanceExists(ctx blackstart.ModuleContext) (bool, error) {
-	// List instances for the given project
-	instancesListCall := m.sqlService.Instances.List(m.target.project)
-	instancesList, err := instancesListCall.Context(ctx).Do()
-	if err != nil {
-		return false, fmt.Errorf("failed to list instances: %w", err)
-	}
-
-	// Check if the specified instanceId exists
-	for _, instance := range instancesList.Items {
-		if instance.Name == m.target.instance {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// checkInstanceIamAuthenticationEnabled returns true when the instance has the flag
-// 'cloudsql.iam_authentication' enabled.
-func (m *managedInstance) checkInstanceIamAuthenticationEnabled(ctx blackstart.ModuleContext) (bool, error) {
+func (m *managedInstance) getInstance(ctx blackstart.ModuleContext) (*sqladmin.DatabaseInstance, error) {
 	instance, err := m.sqlService.Instances.Get(m.target.project, m.target.instance).Context(ctx).Do()
 	if err != nil {
-		return false, err
-	}
-	if instance.Settings == nil {
-		return false, nil
-	}
-	for _, flag := range instance.Settings.DatabaseFlags {
-		if flag == nil {
-			continue
+		if apiErr, ok := errors.AsType[*googleapi.Error](err); ok && apiErr.Code == 404 {
+			return nil, fmt.Errorf("instance %s does not exist in project %s", m.target.instance, m.target.project)
 		}
-		if strings.EqualFold(flag.Name, "cloudsql.iam_authentication") {
-			return strings.EqualFold(flag.Value, "on"), nil
-		}
+		return nil, fmt.Errorf("failed to get instance %s in project %s: %w", m.target.instance, m.target.project, err)
 	}
-	return false, nil
+	return instance, nil
 }
 
 // checkIfSuperuser checks if the current user is a member of the `cloudsqlsuperuser` role on the
 // instance.
-func checkIfSuperuser(ctx context.Context, db *sql.DB) (bool, error) {
+func checkIfSuperuser(ctx context.Context, db *sql.DB, engine ...string) (bool, error) {
+	query := checkPostgresCloudSqlSuperuserRoleQuery
+	if len(engine) > 0 && engine[0] == "MYSQL" {
+		query = checkMySQLCloudSqlSuperuserRoleQuery
+	}
 	var exists int
-	err := db.QueryRowContext(ctx, checkCloudSqlSuperuserRoleQuery).Scan(&exists)
+	err := db.QueryRowContext(ctx, query).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -627,20 +694,24 @@ func checkIfSuperuser(ctx context.Context, db *sql.DB) (bool, error) {
 		return false, fmt.Errorf("failed to check if user is a member of cloudsqlsuperuser role: %w", err)
 	}
 
-	return true, nil
+	return exists != 0, nil
 }
 
 // isManagedInstanceBootstrapConnectionError detects connection failures that should be treated as
 // a check miss (not a fatal error) so managed-instance reconciliation can bootstrap itself.
-func isManagedInstanceBootstrapConnectionError(err error) bool {
+func isManagedInstanceBootstrapConnectionError(err error, engine ...string) bool {
 	if err == nil {
 		return false
+	}
+	if len(engine) > 0 && engine[0] == "MYSQL" {
+		var mysqlErr *gomysql.MySQLError
+		return errors.As(err, &mysqlErr) && mysqlErr.Number == 1045
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "sqlstate 28p01")
 }
 
-// validateUser checks if the provided user is valid for a PostgreSQL role.
+// validateUser checks if the provided user is valid for a supported database role.
 func validateUser(id string) error {
 	// check non-empty
 	if id == "" {

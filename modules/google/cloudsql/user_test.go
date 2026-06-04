@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/pezops/blackstart"
 	"github.com/pezops/blackstart/util"
@@ -126,4 +127,109 @@ func TestUserBuiltin(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.Equal(t, false, res)
+}
+
+func TestCloudSqlMySQLUserMatching(t *testing.T) {
+	users := &sqladmin.UsersListResponse{
+		Items: []*sqladmin.User{
+			{Name: "person", Type: userCloudIamUser},
+			{Name: "blackstart", Type: ""},
+		},
+	}
+
+	tests := map[string]struct {
+		targetUser string
+		targetType string
+		exists     bool
+		correct    bool
+	}{
+		"IAM user matches local name": {
+			targetUser: "person@example.com",
+			targetType: userCloudIamUser,
+			exists:     true,
+			correct:    true,
+		},
+		"built-in user matches unchanged name": {
+			targetUser: "blackstart",
+			targetType: userBuiltIn,
+			exists:     true,
+			correct:    true,
+		},
+		"different IAM type is incorrect": {
+			targetUser: "person@example.com",
+			targetType: userCloudIamServiceAccount,
+			exists:     true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.exists, cloudSqlUserExists(users, tt.targetUser, "MYSQL"))
+			require.Equal(t, tt.correct, cloudSqlUserIsCorrect(users, tt.targetUser, tt.targetType, "MYSQL"))
+		})
+	}
+}
+
+func TestMySQLDatabaseUsername(t *testing.T) {
+	u := user{
+		target: &connectionConfig{
+			engine:   "MYSQL",
+			userType: userCloudIamServiceAccount,
+		},
+	}
+	got, err := u.databaseUsername("blackstart@project.iam.gserviceaccount.com")
+	require.NoError(t, err)
+	require.Equal(t, "blackstart", got)
+}
+
+func TestValidateMySQLUserCollision(t *testing.T) {
+	tests := map[string]struct {
+		users      *sqladmin.UsersListResponse
+		targetType string
+		engine     string
+		wantErr    bool
+	}{
+		"matching IAM user": {
+			users: &sqladmin.UsersListResponse{Items: []*sqladmin.User{
+				{Name: "person", Type: userCloudIamUser},
+			}},
+			targetType: userCloudIamUser,
+			engine:     "MYSQL",
+		},
+		"built-in local name collision": {
+			users: &sqladmin.UsersListResponse{Items: []*sqladmin.User{
+				{Name: "person", Type: ""},
+			}},
+			targetType: userCloudIamUser,
+			engine:     "MYSQL",
+			wantErr:    true,
+		},
+		"different IAM type collision": {
+			users: &sqladmin.UsersListResponse{Items: []*sqladmin.User{
+				{Name: "person", Type: userCloudIamServiceAccount},
+			}},
+			targetType: userCloudIamUser,
+			engine:     "MYSQL",
+			wantErr:    true,
+		},
+		"postgres ignores local names": {
+			users: &sqladmin.UsersListResponse{Items: []*sqladmin.User{
+				{Name: "person", Type: ""},
+			}},
+			targetType: userCloudIamUser,
+			engine:     "POSTGRES",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := validateMySQLUserCollision(tt.users, "person@example.com", tt.targetType, tt.engine)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrMySQLUserCollision)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

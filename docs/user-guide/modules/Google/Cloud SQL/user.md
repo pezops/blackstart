@@ -12,6 +12,13 @@ not support built-in users.
 
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not
   supported by this module. Use Active Directory authentication instead for SQL Server instances.
+- Cloud SQL for PostgreSQL stores service-account usernames without the `.gserviceaccount.com`
+  suffix, so the database username ends with `@<project>.iam`.
+- Cloud SQL for MySQL 5.7+ IAM users are supported.
+- Cloud SQL for MySQL stores IAM database usernames as the lowercase portion before `@`. IAM
+  identities with the same local part cannot coexist on one MySQL instance.
+- A built-in MySQL user or different IAM user type with the same local database username is reported
+  as a conflict instead of being replaced.
 
 ## Requirements
 
@@ -22,9 +29,10 @@ not support built-in users.
 - The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled
   on the project.
 
-- The instance must have
-  [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth)
-  enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.
+- The instance must have IAM authentication enabled for
+  [PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth)
+  or [MySQL](https://docs.cloud.google.com/sql/docs/mysql/iam-authentication#configure-iam-db-auth)
+  with the engine-specific authentication flag set to `on`.
 
 - The Blackstart service account must have permission to manage the database instance. The suggested
   pre-defined role is
@@ -42,9 +50,9 @@ not support built-in users.
 
 ## Outputs
 
-| Id   | Description                                                 | Type   |
-| ---- | ----------------------------------------------------------- | ------ |
-| user | The name of the Cloud SQL user that was created or managed. | string |
+| Id   | Description                                                                                                                      | Type   |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| user | The database username of the Cloud SQL user that was created or managed. For MySQL IAM users, this is the local part before `@`. | string |
 
 ## Examples
 

@@ -4,9 +4,9 @@ title: google_cloudsql_managed_instance
 
 # google_cloudsql_managed_instance
 
-Manages a Google Cloud SQL instance. When managed, the module will ensure that the current workload
-identity is a member of the `cloudsqlsuperuser` role on the instance. The instance is then usable
-for further operations.
+Manages a Google Cloud SQL for PostgreSQL or MySQL instance. When managed, the module ensures the
+current workload identity is a member of the `cloudsqlsuperuser` role on the instance. The instance
+is then usable for further operations.
 
 **Notes**
 
@@ -23,6 +23,11 @@ for further operations.
   permissions for other users.
 - Cloud SQL for SQL Server does not support IAM authentication for database operations and is not
   supported by this module.
+- Cloud SQL for MySQL 5.6 is not supported because
+  [IAM database authentication is not supported for MySQL 5.6](https://docs.cloud.google.com/sql/docs/mysql/iam-authentication#restrictions).
+- Cloud SQL for MySQL 5.7 IAM users are supported by `google_cloudsql_user`, but managed-instance
+  administration requires the
+  [role support available in MySQL 8+](https://docs.cloud.google.com/sql/docs/mysql/users#mysql-8.0-user-privileges).
 
 ## Requirements
 
@@ -31,9 +36,10 @@ for further operations.
 - The [Cloud SQL Admin API](https://docs.cloud.google.com/sql/docs/mysql/admin-api) must be enabled
   on the project.
 
-- The instance must have
-  [IAM authentication](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth)
-  enabled with the `cloudsql.iam_authentication` / `cloudsql_iam_authentication` flag set to `on`.
+- The instance must have IAM authentication enabled for
+  [PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/iam-authentication#instance-config-iam-auth)
+  or [MySQL](https://docs.cloud.google.com/sql/docs/mysql/iam-authentication#configure-iam-db-auth)
+  with the engine-specific authentication flag set to `on`.
 
 - The Blackstart service account must have permission to manage, connect, and login to the database
   instance. Suggested pre-defined roles are
@@ -44,13 +50,13 @@ for further operations.
 
 ## Inputs
 
-| Id              | Description                                                                                         | Type   | Required |
-| --------------- | --------------------------------------------------------------------------------------------------- | ------ | -------- |
-| connection_type | Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`.<br>Default: **PRIVATE_IP** | string | false    |
-| database        | Database name to connect to and return in the managed connection.<br>Default: **postgres**          | string | false    |
-| instance        | Cloud SQL instance ID to manage.                                                                    | string | true     |
-| project         | Google Cloud project ID. If not provided, the current project will be used.                         | string | false    |
-| user            | The user to manage. If not provided, the current user will be used.                                 | string | false    |
+| Id              | Description                                                                                                                        | Type   | Required |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ | -------- |
+| connection_type | Type of connection to use. Must be one of: `PUBLIC_IP`, or `PRIVATE_IP`.<br>Default: **PRIVATE_IP**                                | string | false    |
+| database        | Database name to connect to and return in the managed connection. Defaults to `postgres` for PostgreSQL and no database for MySQL. | string | false    |
+| instance        | Cloud SQL instance ID to manage.                                                                                                   | string | true     |
+| project         | Google Cloud project ID. If not provided, the current project will be used.                                                        | string | false    |
+| user            | The user to manage. If not provided, the current user will be used.                                                                | string | false    |
 
 ## Outputs
 
