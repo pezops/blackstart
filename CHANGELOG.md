@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.1.15](https://github.com/pezops/blackstart/compare/v0.1.14...v0.1.15) (2026-06-05)
+
+
+### 🚀 Features
+
+* Add `mysql_connection` and `mysql_grant` modules ([#83](https://github.com/pezops/blackstart/issues/83)) ([981d2c8](https://github.com/pezops/blackstart/commit/981d2c806490b9ca7e75a373672f5e16de8410c1))
+* Add CloudSQL for MySQL support ([#78](https://github.com/pezops/blackstart/issues/78)) ([77b0b7c](https://github.com/pezops/blackstart/commit/77b0b7c1f873f47bc64824edcce9834694aa1f7f))
+* Add google_cloudsql_database module ([#81](https://github.com/pezops/blackstart/issues/81)) ([3e7b3b6](https://github.com/pezops/blackstart/commit/3e7b3b68105f5288800978adfb44e38539eeaeda))
+
+
+### 📚 Documentation
+
+* Update newly exported SVG diagrams, and update documentation ([#85](https://github.com/pezops/blackstart/issues/85)) ([e779bc8](https://github.com/pezops/blackstart/commit/e779bc8ae69c79f2cf5a2dbefce5355fa87dba93))
+
+
+### 👷 Continuous Integration
+
+* Switch release automation to Release Please ([#76](https://github.com/pezops/blackstart/issues/76)) ([8315de1](https://github.com/pezops/blackstart/commit/8315de1caf00a716f2d8a6f3f91c798064a9a73c))
+
+
+### 🧪 Testing
+
+* Add improved live test logging ([#82](https://github.com/pezops/blackstart/issues/82)) ([ccda840](https://github.com/pezops/blackstart/commit/ccda840779796e0d1c8ebeae1b6e0f45894a1256))
+* Add live integration tests for Cloud SQL for MySQL ([#80](https://github.com/pezops/blackstart/issues/80)) ([4085fb1](https://github.com/pezops/blackstart/commit/4085fb19b56d692ac3cca3bf38c4169e0ae46c4a))
+* Add mock tests and improved test coverage to Google CloudSQL module ([#79](https://github.com/pezops/blackstart/issues/79)) ([8a15a9e](https://github.com/pezops/blackstart/commit/8a15a9ed0382a81509e974b081903c435f44f57c))
+
+
+### ⚙️ Miscellaneous Tasks
+
+* Update dependencies ([#84](https://github.com/pezops/blackstart/issues/84)) ([039f1bb](https://github.com/pezops/blackstart/commit/039f1bba8f7c62cccd7b524afe54dc2e6b66786c))
+
 ## [0.1.14] - 2026-06-04
 
 ### 🐛 Bug Fixes
