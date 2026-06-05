@@ -100,8 +100,11 @@ const (
 	inputPassword       = "password"
 	inputConnectionType = "connection_type"
 	inputUserType       = "user_type"
+	inputCharset        = "charset"
+	inputCollation      = "collation"
 
 	outputUser       = "user"
+	outputDatabase   = "database"
 	outputConnection = "connection"
 )
 

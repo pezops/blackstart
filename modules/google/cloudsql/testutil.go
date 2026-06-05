@@ -19,7 +19,10 @@ import (
 	"google.golang.org/api/sqladmin/v1"
 )
 
-const mysqlLiveModulePackage = modulePackage + ".mysql"
+const (
+	postgresLiveModulePackage = modulePackage + ".postgres"
+	mysqlLiveModulePackage    = modulePackage + ".mysql"
+)
 
 type testError struct {
 	message string
@@ -31,15 +34,18 @@ func (e *testError) Error() string {
 
 // fakeCloudSQLAdmin implements the Cloud SQL Admin REST operations used by the modules.
 type fakeCloudSQLAdmin struct {
-	t        *testing.T
-	server   *httptest.Server
-	instance *sqladmin.DatabaseInstance
-	users    []*sqladmin.User
-	inserted []*sqladmin.User
-	deleted  []url.Values
-	requests []string
-	fail     map[string]int
-	mu       sync.Mutex
+	t                 *testing.T
+	server            *httptest.Server
+	instance          *sqladmin.DatabaseInstance
+	users             []*sqladmin.User
+	databases         []*sqladmin.Database
+	inserted          []*sqladmin.User
+	deleted           []url.Values
+	insertedDatabases []*sqladmin.Database
+	deletedDatabases  []string
+	requests          []string
+	fail              map[string]int
+	mu                sync.Mutex
 }
 
 // newFakeCloudSQLAdmin starts a stateful fake Cloud SQL Admin API server.
@@ -107,6 +113,13 @@ func (f *fakeCloudSQLAdmin) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(f.t, w, f.instance)
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/instances/instance/users"):
 		writeJSON(f.t, w, &sqladmin.UsersListResponse{Items: cloneUsers(f.users)})
+	case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/instances/instance/databases/"):
+		databaseName := pathTail(r.URL.Path)
+		if db := findDatabase(f.databases, databaseName); db != nil {
+			writeJSON(f.t, w, db)
+			return
+		}
+		http.Error(w, "database not found", http.StatusNotFound)
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/instances/instance/users"):
 		var user sqladmin.User
 		require.NoError(f.t, json.NewDecoder(r.Body).Decode(&user))
@@ -119,14 +132,32 @@ func (f *fakeCloudSQLAdmin) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.users = append(f.users, &user)
 		writeJSON(f.t, w, &sqladmin.Operation{})
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/instances/instance/databases"):
+		var database sqladmin.Database
+		require.NoError(f.t, json.NewDecoder(r.Body).Decode(&database))
+		requestDatabase := database
+		f.insertedDatabases = append(f.insertedDatabases, &requestDatabase)
+		f.databases = append(f.databases, &database)
+		writeJSON(f.t, w, &sqladmin.Operation{})
 	case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/instances/instance/users"):
 		f.deleted = append(f.deleted, r.URL.Query())
 		f.deleteUser(r.URL.Query())
+		writeJSON(f.t, w, &sqladmin.Operation{})
+	case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/instances/instance/databases/"):
+		databaseName := pathTail(r.URL.Path)
+		f.deletedDatabases = append(f.deletedDatabases, databaseName)
+		f.deleteDatabase(databaseName)
 		writeJSON(f.t, w, &sqladmin.Operation{})
 	default:
 		f.t.Errorf("unexpected Cloud SQL Admin API request: %s", key)
 		http.Error(w, "unexpected request: "+key, http.StatusNotFound)
 	}
+}
+
+// pathTail returns the final slash-separated path segment.
+func pathTail(path string) string {
+	_, tail, _ := strings.Cut(strings.TrimRight(path, "/"), "/databases/")
+	return tail
 }
 
 // deleteUser removes a matching user from the fake Cloud SQL instance.
@@ -141,6 +172,18 @@ func (f *fakeCloudSQLAdmin) deleteUser(query url.Values) {
 		filtered = append(filtered, user)
 	}
 	f.users = filtered
+}
+
+// deleteDatabase removes a matching database from the fake Cloud SQL instance.
+func (f *fakeCloudSQLAdmin) deleteDatabase(name string) {
+	filtered := f.databases[:0]
+	for _, database := range f.databases {
+		if database.Name == name {
+			continue
+		}
+		filtered = append(filtered, database)
+	}
+	f.databases = filtered
 }
 
 // requestCount returns the number of matching requests received by the fake Admin API.
@@ -164,6 +207,27 @@ func cloneUsers(users []*sqladmin.User) []*sqladmin.User {
 		cloned = append(cloned, &copy)
 	}
 	return cloned
+}
+
+// cloneDatabases returns independent copies of the supplied Cloud SQL databases.
+func cloneDatabases(databases []*sqladmin.Database) []*sqladmin.Database {
+	cloned := make([]*sqladmin.Database, 0, len(databases))
+	for _, database := range databases {
+		copy := *database
+		cloned = append(cloned, &copy)
+	}
+	return cloned
+}
+
+// findDatabase returns the database with the requested name.
+func findDatabase(databases []*sqladmin.Database, name string) *sqladmin.Database {
+	for _, database := range databases {
+		if database.Name == name {
+			copy := *database
+			return &copy
+		}
+	}
+	return nil
 }
 
 // writeJSON writes a JSON response and fails the test if encoding fails.
@@ -272,5 +336,17 @@ func testManagedInstanceOperation(userName string) blackstart.Operation {
 			inputConnectionType: blackstart.NewInputFromValue("PUBLIC_IP"),
 		},
 		Module: "google_cloudsql_managed_instance",
+	}
+}
+
+// testCloudSQLDatabaseOperation creates a standard Cloud SQL database test operation.
+func testCloudSQLDatabaseOperation(databaseName string) blackstart.Operation {
+	return blackstart.Operation{
+		Inputs: map[string]blackstart.Input{
+			inputInstance: blackstart.NewInputFromValue("instance"),
+			inputProject:  blackstart.NewInputFromValue("project"),
+			inputDatabase: blackstart.NewInputFromValue(databaseName),
+		},
+		Module: "google_cloudsql_database",
 	}
 }
