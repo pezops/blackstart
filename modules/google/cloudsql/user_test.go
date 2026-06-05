@@ -29,11 +29,11 @@ func TestPostgresUserBuiltin(t *testing.T) {
 	envOptionalConfig := []string{inputRegion, inputDatabase, inputUser}
 
 	for _, v := range envRequiredConfig {
-		cloudConfig[v] = util.GetTestEnvRequiredVar(t, modulePackage, v)
+		cloudConfig[v] = util.GetTestEnvRequiredVar(t, postgresLiveModulePackage, v)
 	}
 
 	for _, v := range envOptionalConfig {
-		r := util.GetTestEnvOptionalVar(t, modulePackage, v)
+		r := util.GetTestEnvOptionalVar(t, postgresLiveModulePackage, v)
 		if r != "" {
 			cloudConfig[v] = r
 		}
@@ -168,12 +168,18 @@ func TestMySQLUserBuiltin(t *testing.T) {
 	defer cancel()
 	module := NewCloudSqlUser()
 
-	t.Log("deleting the MySQL built-in test user if it exists")
+	t.Log("checking tainted MySQL user for create / recreate")
+	res, err := module.Check(blackstart.OpContext(ctx, &op))
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.Equal(t, false, res)
+
+	// First, delete the user if it exists.
 	_ = module.Set(blackstart.OpContext(ctx, &op))
 
 	op.DoesNotExist = false
 	mctx := blackstart.OpContext(ctx, &op)
-	t.Log("creating the MySQL built-in test user")
+	t.Log("setting MySQL user for create / recreate")
 	require.NoError(t, module.Set(mctx))
 	t.Cleanup(
 		func() {
@@ -184,19 +190,41 @@ func TestMySQLUserBuiltin(t *testing.T) {
 		},
 	)
 
+	t.Log("checking tainted MySQL user post-recreate")
+	res, err = module.Check(mctx)
+	require.NoError(t, err)
+	require.Equal(t, false, res)
+
 	op.Tainted = false
 	mctx = blackstart.OpContext(ctx, &op)
-	exists, err := module.Check(mctx)
+	t.Log("checking MySQL user without taint")
+	res, err = module.Check(mctx)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.Equal(t, true, res)
 
 	op.DoesNotExist = true
 	mctx = blackstart.OpContext(ctx, &op)
-	t.Log("deleting the MySQL built-in test user")
-	require.NoError(t, module.Set(mctx))
-	exists, err = module.Check(mctx)
+	t.Log("checking MySQL user for does not exist")
+	res, err = module.Check(mctx)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, res)
+	require.Equal(t, false, res)
+
+	t.Log("setting MySQL user for does not exist")
+	require.NoError(t, module.Set(mctx))
+	t.Log("checking MySQL user for does not exist")
+	res, err = module.Check(mctx)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.Equal(t, true, res)
+
+	op.DoesNotExist = false
+	mctx = blackstart.OpContext(ctx, &op)
+	t.Log("checking MySQL user without does not exist")
+	res, err = module.Check(mctx)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.Equal(t, false, res)
 }
 
 func TestCloudSqlMySQLUserMatching(t *testing.T) {
