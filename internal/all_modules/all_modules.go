@@ -6,6 +6,7 @@ import (
 	_ "github.com/pezops/blackstart/modules/google/cloudsql"
 	_ "github.com/pezops/blackstart/modules/kubernetes"
 	_ "github.com/pezops/blackstart/modules/mock"
+	_ "github.com/pezops/blackstart/modules/mysql"
 	_ "github.com/pezops/blackstart/modules/postgres"
 	_ "github.com/pezops/blackstart/modules/util"
 )
