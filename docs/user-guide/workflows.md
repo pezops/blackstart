@@ -195,31 +195,3 @@ In this case, the `connection` input will be populated with the value of the `co
 from the `test_instance` operation. This also creates a dependency on `test_instance` in the
 generated execution graph.
 
-## Eventual Consistency & Statelessness
-
-Blackstart is designed around the principle of **eventual consistency** and is completely
-**stateless**.
-
-- **Stateless**: Unlike other tools, Blackstart does not require a state file (e.g.,
-  `terraform.tfstate`). The "source of truth" is the workflow YAML and the actual state of the
-  resources being configured.
-- **Eventually Consistent**: When a workflow runs, each operation first **checks** if the resource
-  is already in the desired state. If it is, Blackstart marks that operation as done and moves on to
-  the next operation. If it's not in the desired state of configuration, Blackstart **sets** the
-  resource to the desired state by performing whatever actions are required.
-
-This model has a powerful implication: workflows are idempotent and safe to run repeatedly. When a
-workflow has reached a fully reconciled state, any subsequent runs will simply check the current
-state of the resources and find that they are already in the desired state, so no changes will be
-made. This also means that the workflows enforce the desired state and help eliminate configuration
-drift.
-
-For example, a workflow needs a database table to exist so that it may configure grants on the
-table. However, that table is created by a separate application which owns and controls the database
-schema. The first time the workflow runs, the operation that depends on the table will fail. This is
-perfectly fine. Once the other application creates the table, the _next_ run of the Blackstart
-workflow will detect this, and the dependent operation will succeed, allowing the workflow to make
-further progress.
-
-This makes Blackstart incredibly resilient and well-suited for dynamic environments where different
-components may come online at different times.

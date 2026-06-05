@@ -8,17 +8,16 @@ manual toil. To achieve this, Blackstart uses a partially ordered set of operati
 run a workflow for bootstrapping and configuring cloud infrastructure and application deployments
 after the initial compute, network, and data infrastructure is deployed. It is designed to be
 idempotent and does not store a persistent state, avoiding the concern of storing sensitive data in
-state files. It can be run on a periodic basis to ensure that the system is kept in the desired
-state.
+state files. It can be run periodically to ensure that the system is kept in the desired state.
 
 Blackstart operates on eventual consistency — it is possible for a workflow to not reach completion
 because it is waiting on an external operation to complete such as a database table creation. When a
 workflow runs, Blackstart builds a directed acyclic graph of operations, processing them in a
 topological order. This ensures that operations are run only after their dependencies have been met.
 If an operation fails, Blackstart logs the information and tries again during the next run. Failure
-is expected during the initial setup and the expectation is that the system will eventually converge
-to the desired state as other dependencies and applications that are being deployed do their own
-initial configuration such as configuring database schemas.
+may be expected during the initial setup. The Blackstart workflow will eventually converge to the
+desired state as other dependencies and applications that are being deployed do their own initial
+configuration, such as configuring database schemas.
 
 ## Components
 
@@ -84,11 +83,12 @@ a management network or a cloud-based CICD service.
 
 #### Terraform Only
 
-When deploying this infrastructure with only Terraform, the apply fails because the application has
-not been deployed, and the application manages the database schema. It is possible to converge the
-infrastructure and application releases, allowing Terraform to manage application releases. However,
-this is not ideal as it creates a tight coupling between infrastructure and application releases,
-adding to the complexity in larger systems.
+When deploying this infrastructure with only Terraform, the `terraform apply` fails because the
+application has not been deployed, and the application manages the database schema. It is possible
+to converge the infrastructure and application releases, allowing Terraform to manage application
+releases. However, this still creates a race condition on deploying the app, running database
+migrations, and assigning IAM grants to database resources. It also creates a tight coupling between
+infrastructure and application releases, which often adds complexity.
 
 ![Terraform Only](docs/images/ex1-tf-only.svg)
 
