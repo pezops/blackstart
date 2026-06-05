@@ -65,8 +65,7 @@ executed.
 
 ### Basic Workflow
 
-![Basic Workflow](docs/images/workflow-light.svg#gh-light-mode-only)
-![Basic Workflow](docs/images/workflow-dark.svg#gh-dark-mode-only)
+![Basic Workflow](docs/images/workflow.svg)
 
 ### Example - Bootstrapping a Database
 
@@ -81,8 +80,7 @@ race condition on the table creation that will cause the infrastructure creation
 For infrastructure creation, the DevOps process or CICD pipeline runs in a separate network such as
 a management network or a cloud-based CICD service.
 
-![Architecture](docs/images/ex1-arch-light.svg#gh-light-mode-only)
-![Architecture](docs/images/ex1-arch-dark.svg#gh-dark-mode-only)
+![Architecture](docs/images/ex1-arch.svg)
 
 #### Terraform Only
 
@@ -92,16 +90,14 @@ infrastructure and application releases, allowing Terraform to manage applicatio
 this is not ideal as it creates a tight coupling between infrastructure and application releases,
 adding to the complexity in larger systems.
 
-![Terraform Only](docs/images/ex1-tf-only-light.svg#gh-light-mode-only)
-![Terraform Only](docs/images/ex1-tf-only-dark.svg#gh-dark-mode-only)
+![Terraform Only](docs/images/ex1-tf-only.svg)
 
 #### Terraform and Blackstart
 
 When deploying this infrastructure with Terraform and Blackstart, the core infrastructure is created
 by Terraform, and Blackstart handles creating the database grants from inside the VPC.
 
-![Terraform and Blackstart](docs/images/ex1-tf-blackstart-light.svg#gh-light-mode-only)
-![Terraform and Blackstart](docs/images/ex1-tf-blackstart-dark.svg#gh-dark-mode-only)
+![Terraform and Blackstart](docs/images/ex1-tf-blackstart.svg)
 
 ## Secure by Default
 
