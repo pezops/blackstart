@@ -1,31 +1,43 @@
 # Eventual Consistency
 
-Blackstart is designed with the principle of **eventual consistency** at its core. Workflows are not
-expected to complete in a single run. In controller mode, each workflow runs on its configured
-`spec.reconcileInterval` (default `5m`) and makes incremental progress until the desired state is
-reached.
+Blackstart workflows are designed to converge over time. A workflow does not have to complete in a
+single run to be useful. If one operation succeeds and a later operation is blocked by an external
+dependency, the workflow can make more progress the next time it runs.
 
-Controller mode watches `Workflow` resources for add/update/delete changes and also performs a
-periodic full resync (`controller.resyncInterval`) as a safety net.
+This is important for bootstrapping cloud systems because Blackstart often configures resources that
+other tools or applications create first. For example, an application migration might create a
+database table before Blackstart can grant permissions on that table.
 
-This approach provides immense flexibility and resilience, especially in modern, distributed
-environments where different components may come online or be updated at different times.
+## Stateless Reconciliation
+
+Blackstart does not store a state file. The source of truth is the workflow YAML and the live state
+of the resources being configured.
+
+Each time a workflow runs, Blackstart rebuilds the operation dependency graph and reconciles each
+operation in order. For each operation, the module follows the same
+[Check then Set](./workflows.md#check-then-set) model:
+
+- `Check` reads the current state and reports whether it already matches the workflow.
+- `Set` runs only when `Check` returns false without an error.
+
+Because the workflow is stateless, every run validates the live system again. If the system already
+matches the workflow, no changes are made. If something drifted, the next run can bring it back to
+the desired state.
+
+At a high level, each workflow run follows this execution path:
+
+![Workflow execution overview](../images/workflow.svg)
 
 ## How it Works: Periodic Runs
 
-When a Blackstart workflow runs, it executes each [operation](./workflows.md#operations) in the
-dependency graph. For each operation, it performs a [Check then Set](./workflows.md#check-then-set)
-process.
-
-- If an operation's `Check` step passes, it means that part of the system is already in the desired
-  state, and Blackstart moves on.
-- If the `Check` step fails, Blackstart executes the `Set` step to bring the resource to the desired
-  state.
+In controller mode, each workflow runs on its configured `spec.reconcileInterval` (default `5m`).
+Controller mode also watches `Workflow` resources for add/update/delete changes and performs a
+periodic full resync (`controller.resyncInterval`) as a safety net.
 
 A workflow may not fully complete in one run. An operation might fail because it's waiting on an
-external dependency that isn't ready yet. This is not an error in Blackstart; it's an expected part
-of the process. On the next scheduled run, the workflow will try again. Hopefully, the dependency is
-now available, and the workflow can make more progress.
+external dependency that is not ready yet. This can be an expected part of bootstrapping. On the
+next scheduled run, Blackstart checks the live state again and continues from the current reality,
+not from stored state from the previous run.
 
 A workflow is considered "fully reconciled" when a run completes with every operation passing its
 `Check` step, and no `Set` operations are performed. At this point, the real-world infrastructure
@@ -60,8 +72,8 @@ spec:
         permission: "SELECT"
 ```
 
-The first time this workflow runs, the `my_app_user` operation will likely succeed. However, if the
-application hasn't deployed and created `my_table` yet, the `my_app_grant` operation will fail
+The first time this workflow runs, the `my_app_user` operation will likely succeed. If the
+application has not deployed and created `my_table` yet, the `my_app_grant` operation can fail
 during its `Check` or `Set` step because the table does not exist.
 
 This is fine. The workflow run will be marked as failed, but it has made progress.
@@ -76,16 +88,16 @@ Another common scenario involves dependencies on resources created by other syst
 Kubernetes cluster. For instance, a tool like cert-manager can automatically provision TLS
 certificates and store them as Kubernetes Secrets.
 
-A Blackstart workflow might be responsible for consuming this secret, for example, to configure a
-some other service to use TLS encryption.
+A Blackstart workflow might be responsible for consuming this secret, for example, to configure
+another service to use TLS encryption.
 
 1.  **External System (cert-manager)**: A `Certificate` resource is created. Cert-manager sees this
     and generates a private key and certificate, storing them in a `Secret` named `my-app-tls`.
 2.  **Blackstart Workflow**: An operation in a workflow needs to read `my-app-tls` to configure a
     component.
 
-When the Blackstart workflow runs, it's a race. If cert-manager has not yet created the `my-app-tls`
-secret, the Blackstart operation that needs it will fail its `Check` step.
+When the Blackstart workflow runs, the secret may not exist yet. If cert-manager has not created the
+`my-app-tls` secret, the Blackstart operation that needs it will fail its `Check` step.
 
 On a subsequent run, after cert-manager has done its job, the `Check` will find the secret, and the
 workflow will proceed to use it, completing successfully. This model allows different teams and
