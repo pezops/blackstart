@@ -37,11 +37,11 @@ func TestPostgresManagedInstance(t *testing.T) {
 	envOptionalConfig := []string{inputRegion}
 
 	for _, v := range envRequiredConfig {
-		cloudConfig[v] = util.GetTestEnvRequiredVar(t, modulePackage, v)
+		cloudConfig[v] = util.GetTestEnvRequiredVar(t, postgresLiveModulePackage, v)
 	}
 
 	for _, v := range envOptionalConfig {
-		r := util.GetTestEnvOptionalVar(t, modulePackage, v)
+		r := util.GetTestEnvOptionalVar(t, postgresLiveModulePackage, v)
 		if r != "" {
 			cloudConfig[v] = r
 		}
@@ -141,6 +141,11 @@ func TestMySQLManagedInstance(t *testing.T) {
 	defer cancel()
 	module := NewCloudSqlManagedInstance()
 
+	t.Log("checking the MySQL instance to see if its already managed")
+	managed, err := module.Check(blackstart.OpContext(ctx, &op))
+	require.NoError(t, err)
+	require.False(t, managed)
+
 	t.Log("setting the MySQL instance to managed")
 	require.NoError(t, module.Set(blackstart.OpContext(ctx, &op)))
 	t.Cleanup(
@@ -157,16 +162,25 @@ func TestMySQLManagedInstance(t *testing.T) {
 
 	checkOp := op
 	checkOp.Id = "check-mysql-managed-instance"
-	managed, err := module.Check(blackstart.OpContext(ctx, &checkOp))
+	t.Log("checking MySQL instance to see if it's managed")
+	managed, err = module.Check(blackstart.OpContext(ctx, &checkOp))
 	require.NoError(t, err)
 	require.True(t, managed)
 
 	op.DoesNotExist = true
+	checkOp = op
+	checkOp.Id = "check-mysql-managed-instance-before-unmanage"
+	t.Log("checking MySQL instance to see if it's not managed")
+	managed, err = module.Check(blackstart.OpContext(ctx, &checkOp))
+	require.NoError(t, err)
+	require.False(t, managed)
+
 	t.Log("setting the MySQL instance to unmanaged")
 	require.NoError(t, module.Set(blackstart.OpContext(ctx, &op)))
 
 	checkOp = op
 	checkOp.Id = "check-mysql-unmanaged-instance"
+	t.Log("checking MySQL instance to see if it's not managed")
 	managed, err = module.Check(blackstart.OpContext(ctx, &checkOp))
 	require.NoError(t, err)
 	require.True(t, managed)
@@ -184,11 +198,11 @@ func TestPostgresConnectUser(t *testing.T) {
 	envOptionalConfig := []string{inputDatabase}
 
 	for _, v := range envRequiredConfig {
-		testConfig[v] = util.GetTestEnvRequiredVar(t, modulePackage, v)
+		testConfig[v] = util.GetTestEnvRequiredVar(t, postgresLiveModulePackage, v)
 	}
 
 	for _, v := range envOptionalConfig {
-		r := util.GetTestEnvOptionalVar(t, modulePackage, v)
+		r := util.GetTestEnvOptionalVar(t, postgresLiveModulePackage, v)
 		if r != "" {
 			testConfig[v] = r
 		}
@@ -260,6 +274,7 @@ func TestMySQLConnectUser(t *testing.T) {
 		iamIdentity, err = cloud.IamUser(ctx, creds)
 		require.NoError(t, err)
 	}
+	t.Logf("ensuring MySQL IAM database user exists for %s", iamIdentity)
 	ensureLiveCloudSQLIAMUser(
 		t,
 		ctx,
@@ -285,6 +300,7 @@ func TestMySQLConnectUser(t *testing.T) {
 	if strings.EqualFold(testConfig[inputConnectionType], "PRIVATE_IP") {
 		driver = sqlDriverMySQLIamPrivateIp
 	}
+	t.Logf("opening MySQL IAM connection using driver %s", driver)
 	db, err := sql.Open(
 		driver,
 		cloudsqlMySQLDsn(driver, instanceIdentifier, testConfig[inputDatabase], username, ""),
@@ -295,8 +311,10 @@ func TestMySQLConnectUser(t *testing.T) {
 	}()
 
 	var result int
+	t.Log("running MySQL SELECT 1")
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&result))
 	require.Equal(t, 1, result)
+	t.Logf("MySQL query result: %d", result)
 }
 
 // TestPostgresConnectSvcAcct tests a service-account connection to a live PostgreSQL instance.
@@ -310,11 +328,11 @@ func TestPostgresConnectSvcAcct(t *testing.T) {
 	envOptionalConfig := []string{inputDatabase, "svc_acct_json"}
 
 	for _, v := range envRequiredConfig {
-		testConfig[v] = util.GetTestEnvRequiredVar(t, modulePackage, v)
+		testConfig[v] = util.GetTestEnvRequiredVar(t, postgresLiveModulePackage, v)
 	}
 
 	for _, v := range envOptionalConfig {
-		r := util.GetTestEnvOptionalVar(t, modulePackage, v)
+		r := util.GetTestEnvOptionalVar(t, postgresLiveModulePackage, v)
 		if r != "" {
 			testConfig[v] = r
 		}
@@ -367,6 +385,7 @@ func TestPostgresConnectSvcAcct(t *testing.T) {
 	if err != nil {
 		log.Fatalf("Error finding IAM user: %v", err)
 	}
+	t.Logf("ensuring PostgreSQL IAM database user exists for %s", userId)
 	ensureLiveCloudSQLIAMUser(
 		t,
 		ctx,
@@ -381,6 +400,7 @@ func TestPostgresConnectSvcAcct(t *testing.T) {
 
 	var db *sql.DB
 	if filename != "" {
+		t.Logf("opening PostgreSQL IAM service-account connection using credentials file %s", filename)
 		_, _ = pgxv5.RegisterDriver(
 			sqlDriverPostgresIam+"svc_acct", cloudsqlconn.WithIAMAuthN(), cloudsqlconn.WithCredentialsFile(filename),
 		)
@@ -390,6 +410,7 @@ func TestPostgresConnectSvcAcct(t *testing.T) {
 			t.Errorf("failed to open database connection: %v", err)
 		}
 	} else {
+		t.Log("opening PostgreSQL IAM service-account connection using ADC")
 		db, err = sql.Open(sqlDriverPostgresIam, dsn)
 		if err != nil {
 			t.Errorf("failed to open database connection: %v", err)
@@ -398,12 +419,14 @@ func TestPostgresConnectSvcAcct(t *testing.T) {
 
 	// Run SELECT 1
 	var result int
+	t.Log("running PostgreSQL service-account SELECT 1")
 	err = db.QueryRowContext(ctx, "SELECT 1").Scan(&result)
 	if err != nil {
 		t.Errorf("failed to run query: %v", err)
 	}
 
 	require.Equal(t, 1, result)
+	t.Logf("PostgreSQL service-account query result: %d", result)
 }
 
 // ensureLiveCloudSQLIAMUser creates the IAM database user needed by live connection tests.
@@ -431,18 +454,22 @@ func ensureLiveCloudSQLIAMUser(
 	}
 
 	module := NewCloudSqlUser()
+	t.Logf("checking IAM database user %s", iamIdentity)
 	exists, err := module.Check(blackstart.OpContext(ctx, &op))
 	require.NoError(t, err)
 	if exists {
+		t.Logf("IAM database user %s already exists", iamIdentity)
 		return
 	}
 
+	t.Logf("creating IAM database user %s", iamIdentity)
 	require.NoError(t, module.Set(blackstart.OpContext(ctx, &op)))
 	t.Cleanup(
 		func() {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			op.DoesNotExist = true
+			t.Logf("cleaning up IAM database user %s", iamIdentity)
 			_ = module.Set(blackstart.OpContext(cleanupCtx, &op))
 		},
 	)
