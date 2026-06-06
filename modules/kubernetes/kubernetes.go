@@ -42,9 +42,9 @@ var updatePolicyDocs = util.CleanString(
 Update policies control how existing values are handled when setting key-value pairs in ConfigMaps 
 and Secrets. The following update policies are supported:
 
+- '''preserve_any''' - Any existing value will be preserved. To avoid any accidental changes, this is the default update policy.
 - '''overwrite''' - Existing values will be overwritten if they differ from the new value.
 - '''preserve''' - Any non-empty, existing value will be preserved.
-- '''preserve_any''' - Any existing value will be preserved.
 - '''fail''' - If the new value differs from the existing value, the operation will fail.
 
 `,

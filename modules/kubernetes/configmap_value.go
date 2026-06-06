@@ -49,7 +49,7 @@ func (c *configMapValueModule) Info() blackstart.ModuleInfo {
 				Description: "Update policy for the key-value pair",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
-				Default:     updatePolicyOverwrite,
+				Default:     updatePolicyPreserveAny,
 			},
 		},
 		Outputs: map[string]blackstart.OutputValue{
@@ -77,7 +77,8 @@ inputs:
       id: app-configmap
       output: configmap
   key: DATABASE_URL
-  value: postgres://user:password@localhost:5432/db`,
+  value: postgres://user:password@localhost:5432/db
+  update_policy: overwrite`,
 		},
 	}
 }
@@ -110,7 +111,7 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 		return fmt.Errorf("input '%s' must be provided", inputConfigMap)
 	}
 
-	updatePolicy := updatePolicyOverwrite
+	updatePolicy := updatePolicyPreserveAny
 	if updatePolicyInput, exists := op.Inputs[inputUpdatePolicy]; exists {
 		if !updatePolicyInput.IsStatic() {
 			return nil
@@ -121,7 +122,7 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 		}
 		updatePolicy = strings.TrimSpace(updatePolicyValue)
 		if updatePolicy == "" {
-			updatePolicy = updatePolicyOverwrite
+			updatePolicy = updatePolicyPreserveAny
 		}
 	}
 
@@ -154,13 +155,13 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 		return false, err
 	}
 
-	updatePolicy := updatePolicyOverwrite
+	updatePolicy := updatePolicyPreserveAny
 	updatePolicyInput, inputErr := blackstart.ContextInputAs[string](ctx, inputUpdatePolicy, false)
 	if inputErr == nil {
 		updatePolicy = strings.TrimSpace(updatePolicyInput)
 	}
 	if updatePolicy == "" {
-		updatePolicy = updatePolicyOverwrite
+		updatePolicy = updatePolicyPreserveAny
 	}
 	if _, ok := updatePolicies[updatePolicy]; !ok {
 		return false, fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
