@@ -24,7 +24,10 @@ func TestConfigMapValueModule_Info(t *testing.T) {
 	assert.True(t, exists)
 	_, exists = info.Inputs[inputValue]
 	assert.True(t, exists)
+	assert.False(t, info.Inputs[inputValue].Required)
 	_, exists = info.Inputs[inputConfigMap]
+	assert.True(t, exists)
+	_, exists = info.Outputs[outputValue]
 	assert.True(t, exists)
 }
 
@@ -77,11 +80,37 @@ func TestConfigMapValueModule_Validate(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "missing value",
+			name: "missing value with overwrite",
 			inputs: map[string]blackstart.Input{
 				inputConfigMap:    blackstart.NewInputFromValue(cm),
 				inputKey:          blackstart.NewInputFromValue("test-key"),
 				inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyOverwrite),
+			},
+			expectError: true,
+		},
+		{
+			name: "missing value with preserve_any",
+			inputs: map[string]blackstart.Input{
+				inputConfigMap:    blackstart.NewInputFromValue(cm),
+				inputKey:          blackstart.NewInputFromValue("test-key"),
+				inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserveAny),
+			},
+			expectError: false,
+		},
+		{
+			name: "missing value defaults to preserve_any",
+			inputs: map[string]blackstart.Input{
+				inputConfigMap: blackstart.NewInputFromValue(cm),
+				inputKey:       blackstart.NewInputFromValue("test-key"),
+			},
+			expectError: false,
+		},
+		{
+			name: "null value is invalid",
+			inputs: map[string]blackstart.Input{
+				inputConfigMap: blackstart.NewInputFromValue(cm),
+				inputKey:       blackstart.NewInputFromValue("test-key"),
+				inputValue:     blackstart.NewInputFromValue(nil),
 			},
 			expectError: true,
 		},
@@ -106,7 +135,7 @@ func TestConfigMapValueModule_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "missing update policy defaults to overwrite",
+			name: "missing update policy defaults to preserve_any",
 			inputs: map[string]blackstart.Input{
 				inputConfigMap: blackstart.NewInputFromValue(cm),
 				inputKey:       blackstart.NewInputFromValue("test-key"),
@@ -176,6 +205,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 		namespace      string
 		key            string
 		value          string
+		omitValue      bool
 		updatePolicy   string
 		doesNotExist   bool
 		tainted        bool
@@ -211,11 +241,20 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			expectedResult: true,
 		},
 		{
-			name:           "existing configmap existing key correct value - empty policy defaults to overwrite",
+			name:           "existing configmap existing key correct value - empty policy defaults to preserve_any",
 			configMapName:  "test-configmap",
 			namespace:      "test-namespace",
 			key:            "existing-key",
 			value:          "existing-value",
+			updatePolicy:   "",
+			expectedResult: true,
+		},
+		{
+			name:           "existing configmap existing key different value - empty policy defaults to preserve_any",
+			configMapName:  "test-configmap",
+			namespace:      "test-namespace",
+			key:            "existing-key",
+			value:          "different-value",
 			updatePolicy:   "",
 			expectedResult: true,
 		},
@@ -274,6 +313,34 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 			value:          "new-value",
 			updatePolicy:   updatePolicyPreserveAny,
 			expectedResult: false,
+		},
+		{
+			name:           "preserve_any policy with non-empty existing value and omitted value",
+			configMapName:  "test-configmap",
+			namespace:      "test-namespace",
+			key:            "existing-key",
+			omitValue:      true,
+			updatePolicy:   updatePolicyPreserveAny,
+			expectedResult: true,
+		},
+		{
+			name:           "preserve_any policy with missing key and omitted value",
+			configMapName:  "test-configmap",
+			namespace:      "test-namespace",
+			key:            "missing-key",
+			omitValue:      true,
+			updatePolicy:   updatePolicyPreserveAny,
+			expectedResult: false,
+		},
+		{
+			name:           "overwrite policy with omitted value",
+			configMapName:  "test-configmap",
+			namespace:      "test-namespace",
+			key:            "existing-key",
+			omitValue:      true,
+			updatePolicy:   updatePolicyOverwrite,
+			expectedResult: false,
+			expectError:    true,
 		},
 		// Fail policy tests
 		{
@@ -377,8 +444,10 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 				inputs := map[string]blackstart.Input{
 					inputConfigMap:    blackstart.NewInputFromValue(configMapObj),
 					inputKey:          blackstart.NewInputFromValue(test.key),
-					inputValue:        blackstart.NewInputFromValue(test.value),
 					inputUpdatePolicy: blackstart.NewInputFromValue(test.updatePolicy),
+				}
+				if !test.omitValue {
+					inputs[inputValue] = blackstart.NewInputFromValue(test.value)
 				}
 
 				// Create context using blackstart.InputsToContext
@@ -405,6 +474,55 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 				assert.Equal(t, test.expectedResult, result)
 			},
 		)
+	}
+}
+
+func TestConfigMapValueModule_CheckOutputsSupportedValueStates(t *testing.T) {
+	clientset := fake.NewClientset()
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
+		Data: map[string]string{
+			"string-key": "stored-value",
+			"empty-key":  "",
+		},
+	}
+
+	module := NewConfigMapValueModule()
+	tests := []struct {
+		name       string
+		key        string
+		wantResult bool
+		wantOutput bool
+		wantValue  string
+	}{
+		{name: "string_value", key: "string-key", wantResult: true, wantOutput: true, wantValue: "stored-value"},
+		{name: "empty_string_value", key: "empty-key", wantResult: true, wantOutput: true, wantValue: ""},
+		{name: "missing_key", key: "missing-key", wantResult: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputs := map[string]blackstart.Input{
+				inputConfigMap: blackstart.NewInputFromValue(&configMap{
+					cm:  cm,
+					cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+				}),
+				inputKey: blackstart.NewInputFromValue(tt.key),
+			}
+			ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+			result, err := module.Check(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantResult, result)
+			if tt.wantOutput {
+				assert.Equal(t, tt.wantValue, ctx.outputs[outputValue])
+				assert.IsType(t, "", ctx.outputs[outputValue])
+			} else {
+				assert.NotContains(t, ctx.outputs, outputValue)
+			}
+		})
 	}
 }
 
@@ -548,6 +666,108 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestConfigMapValueModule_SetOutputsWrittenValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
+		Data: map[string]string{},
+	}
+	_, err := clientset.CoreV1().ConfigMaps("test-namespace").Create(
+		context.Background(),
+		initialConfigMap,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewConfigMapValueModule()
+	inputs := map[string]blackstart.Input{
+		inputConfigMap: blackstart.NewInputFromValue(&configMap{
+			cm:  initialConfigMap,
+			cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+		}),
+		inputKey:   blackstart.NewInputFromValue("private-key"),
+		inputValue: blackstart.NewInputFromValue("generated-private-key"),
+	}
+	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+	err = module.Set(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "generated-private-key", ctx.outputs[outputValue])
+}
+
+func TestConfigMapValueModule_SetRejectsOmittedValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
+		Data: map[string]string{},
+	}
+	_, err := clientset.CoreV1().ConfigMaps("test-namespace").Create(
+		context.Background(),
+		initialConfigMap,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewConfigMapValueModule()
+	inputs := map[string]blackstart.Input{
+		inputConfigMap: blackstart.NewInputFromValue(&configMap{
+			cm:  initialConfigMap,
+			cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+		}),
+		inputKey:          blackstart.NewInputFromValue("missing-key"),
+		inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserveAny),
+	}
+	ctx := blackstart.InputsToContext(context.Background(), inputs)
+
+	err = module.Set(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be provided when setting a missing key")
+}
+
+func TestConfigMapValueModule_SetAllowsEmptyStringValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
+		Data: map[string]string{},
+	}
+	_, err := clientset.CoreV1().ConfigMaps("test-namespace").Create(
+		context.Background(),
+		initialConfigMap,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewConfigMapValueModule()
+	inputs := map[string]blackstart.Input{
+		inputConfigMap: blackstart.NewInputFromValue(&configMap{
+			cm:  initialConfigMap,
+			cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+		}),
+		inputKey:   blackstart.NewInputFromValue("empty-key"),
+		inputValue: blackstart.NewInputFromValue(""),
+	}
+	ctx := blackstart.InputsToContext(context.Background(), inputs)
+
+	err = module.Set(ctx)
+	require.NoError(t, err)
+	cm, err := clientset.CoreV1().ConfigMaps("test-namespace").Get(
+		context.Background(),
+		"test-configmap",
+		metav1.GetOptions{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "", cm.Data["empty-key"])
 }
 
 func TestConfigMapValueModule(t *testing.T) {

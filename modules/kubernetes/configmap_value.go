@@ -3,7 +3,6 @@ package kubernetes
 import (
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/pezops/blackstart"
 )
@@ -41,19 +40,32 @@ func (c *configMapValueModule) Info() blackstart.ModuleInfo {
 				Required:    true,
 			},
 			inputValue: {
-				Description: "Value to set for the key",
+				Description: "Value to set for the key. Required unless `update_policy` is `preserve_any`. Empty strings are allowed.",
 				Type:        reflect.TypeFor[string](),
-				Required:    true,
+				Required:    false,
 			},
 			inputUpdatePolicy: {
 				Description: "Update policy for the key-value pair",
 				Type:        reflect.TypeFor[string](),
 				Required:    false,
-				Default:     updatePolicyOverwrite,
+				Default:     updatePolicyPreserveAny,
 			},
 		},
-		Outputs: map[string]blackstart.OutputValue{},
+		Outputs: map[string]blackstart.OutputValue{
+			outputValue: {
+				Description: "Current value stored for the key after reconciliation.",
+				Type:        reflect.TypeFor[string](),
+			},
+		},
 		Examples: map[string]string{
+			"Read ConfigMap Value": `id: read-configmap-value
+module: kubernetes_configmap_value
+inputs:
+  configmap:
+    fromDependency:
+      id: app-configmap
+      output: configmap
+  key: DATABASE_URL`,
 			"Set ConfigMap Value": `id: set-configmap-example
 module: kubernetes_configmap_value
 inputs:
@@ -62,7 +74,8 @@ inputs:
       id: app-configmap
       output: configmap
   key: DATABASE_URL
-  value: postgres://user:password@localhost:5432/db`,
+  value: postgres://user:password@localhost:5432/db
+  update_policy: overwrite`,
 		},
 	}
 }
@@ -83,46 +96,24 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 		}
 	}
 
-	// Value is required (but can be an empty string)
-	_, ok = op.Inputs[inputValue]
-	if !ok {
-		return fmt.Errorf("input '%s' must be provided", inputValue)
-	}
-
 	// ConfigMap is required
 	_, ok = op.Inputs[inputConfigMap]
 	if !ok {
 		return fmt.Errorf("input '%s' must be provided", inputConfigMap)
 	}
 
-	updatePolicy := updatePolicyOverwrite
-	if updatePolicyInput, exists := op.Inputs[inputUpdatePolicy]; exists {
-		if !updatePolicyInput.IsStatic() {
-			return nil
-		}
-		updatePolicyValue, err := blackstart.InputAs[string](updatePolicyInput, false)
-		if err != nil {
-			return fmt.Errorf("input '%s' is invalid: %w", inputUpdatePolicy, err)
-		}
-		updatePolicy = strings.TrimSpace(updatePolicyValue)
-		if updatePolicy == "" {
-			updatePolicy = updatePolicyOverwrite
-		}
+	updatePolicy, policyKnown, err := operationUpdatePolicy(op)
+	if err != nil {
+		return err
 	}
-
-	_, ok = updatePolicies[updatePolicy]
-	if !ok {
-		return fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+	if err = validateValueInput(op, updatePolicy, policyKnown); err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error) {
-	if ctx.Tainted() {
-		return false, nil
-	}
-
 	cmInput, err := ctx.Input(inputConfigMap)
 	if err != nil {
 		return false, fmt.Errorf("failed to get ConfigMap: %w", err)
@@ -138,21 +129,21 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 		return false, err
 	}
 
-	desiredValue, err := blackstart.ContextInputAs[string](ctx, inputValue, true)
+	updatePolicy, err := contextUpdatePolicy(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	updatePolicy := updatePolicyOverwrite
-	updatePolicyInput, inputErr := blackstart.ContextInputAs[string](ctx, inputUpdatePolicy, false)
-	if inputErr == nil {
-		updatePolicy = strings.TrimSpace(updatePolicyInput)
+	desiredValue, hasValue, err := contextOptionalValue(ctx)
+	if err != nil {
+		return false, err
 	}
-	if updatePolicy == "" {
-		updatePolicy = updatePolicyOverwrite
+	if err = requireValueInput(updatePolicy, hasValue); err != nil {
+		return false, err
 	}
-	if _, ok := updatePolicies[updatePolicy]; !ok {
-		return false, fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+
+	if ctx.Tainted() {
+		return false, nil
 	}
 
 	// If DoesNotExist is true, success is either the ConfigMap or key does not exist
@@ -172,21 +163,24 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 
 	switch updatePolicy {
 	case updatePolicyOverwrite:
-		return actualValue == desiredValue, nil
+		if actualValue == desiredValue {
+			return true, outputConfigMapValue(ctx, actualValue)
+		}
+		return false, nil
 	case updatePolicyPreserve:
 		if actualValue != "" {
-			return true, nil
+			return true, outputConfigMapValue(ctx, actualValue)
 		}
 		return false, nil
 	case updatePolicyPreserveAny:
-		return true, nil
+		return true, outputConfigMapValue(ctx, actualValue)
 	case updatePolicyFail:
 		if actualValue != desiredValue {
 			return false, fmt.Errorf(
 				"key '%s' had a value changed, but updating the value is not allowed due to the update policy", key,
 			)
 		}
-		return true, nil
+		return true, outputConfigMapValue(ctx, actualValue)
 	}
 	return false, fmt.Errorf("unhandled update policy: %s", updatePolicy)
 }
@@ -207,7 +201,7 @@ func (c *configMapValueModule) Set(ctx blackstart.ModuleContext) error {
 		return err
 	}
 
-	desiredValue, err := blackstart.ContextInputAs[string](ctx, inputValue, true)
+	desiredValue, hasValue, err := contextOptionalValue(ctx)
 	if err != nil {
 		return err
 	}
@@ -223,10 +217,23 @@ func (c *configMapValueModule) Set(ctx blackstart.ModuleContext) error {
 			delete(cm.cm.Data, key)
 			return cm.Update(ctx)
 		}
+		return nil
+	}
+
+	if err = requireSetValueInput(hasValue); err != nil {
+		return err
 	}
 
 	// ConfigMap exists, update the value
 	cm.cm.Data[key] = desiredValue
 
-	return cm.Update(ctx)
+	if err = cm.Update(ctx); err != nil {
+		return err
+	}
+	return outputConfigMapValue(ctx, desiredValue)
+}
+
+// outputConfigMapValue emits the value output for a ConfigMap key.
+func outputConfigMapValue(ctx blackstart.ModuleContext, value string) error {
+	return ctx.Output(outputValue, value)
 }
