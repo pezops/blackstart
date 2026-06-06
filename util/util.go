@@ -15,11 +15,11 @@ import (
 )
 
 func init() {
-	requirePrng()
+	RequirePrng()
 }
 
-// requirePrng ensures that the system has a secure PRNG available for the crypto/rand package.
-func requirePrng() {
+// RequirePrng ensures that the system has a secure PRNG available for the crypto/rand package.
+func RequirePrng() {
 	if _, err := rand.Read(make([]byte, 1)); err != nil {
 		panic("crypto/rand is unavailable")
 	}

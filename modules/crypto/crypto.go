@@ -1,6 +1,13 @@
 package crypto
 
-import "github.com/pezops/blackstart"
+import (
+	"github.com/pezops/blackstart"
+	"github.com/pezops/blackstart/util"
+)
+
+func init() {
+	util.RequirePrng()
+}
 
 const (
 	inputAlgorithm     = "algorithm"
