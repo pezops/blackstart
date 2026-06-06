@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"crypto/rand"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"fmt"
 	"reflect"
 
@@ -105,14 +105,14 @@ func (m *certificateRequestModule) Set(ctx blackstart.ModuleContext) error {
 	if err != nil {
 		return err
 	}
-	template := &stdx509.CertificateRequest{
+	template := &x509.CertificateRequest{
 		Subject:        pkixName(m.target.Identity.Subject),
 		DNSNames:       m.target.Identity.SANs.DNSNames,
 		IPAddresses:    m.target.Identity.SANs.IPAddresses,
 		EmailAddresses: m.target.Identity.SANs.EmailAddresses,
 		URIs:           m.target.Identity.SANs.URIs,
 	}
-	der, err := stdx509.CreateCertificateRequest(rand.Reader, template, key)
+	der, err := x509.CreateCertificateRequest(rand.Reader, template, key)
 	if err != nil {
 		return fmt.Errorf("failed creating certificate request: %w", err)
 	}

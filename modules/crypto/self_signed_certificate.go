@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"crypto/rand"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"fmt"
 	"reflect"
 	"time"
@@ -201,11 +201,11 @@ func (m *selfSignedCertificateModule) Set(ctx blackstart.ModuleContext) error {
 	if err != nil {
 		return err
 	}
-	der, err := stdx509.CreateCertificate(rand.Reader, template, template, publicKey, key)
+	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, key)
 	if err != nil {
 		return fmt.Errorf("failed creating self-signed certificate: %w", err)
 	}
-	cert, err := stdx509.ParseCertificate(der)
+	cert, err := x509.ParseCertificate(der)
 	if err != nil {
 		return fmt.Errorf("failed parsing generated certificate: %w", err)
 	}

@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"bytes"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"fmt"
 	"reflect"
 	"time"
@@ -13,7 +13,7 @@ import (
 // certificateTemplate builds a certificate template from normalized inputs.
 func certificateTemplate(
 	profile string, identity certIdentity, now time.Time, validityHours int64,
-) (*stdx509.Certificate, error) {
+) (*x509.Certificate, error) {
 	keyUsage, extKeyUsage, isCA, err := profileUsages(profile)
 	if err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ func certificateTemplate(
 	notBefore := now.UTC()
 	notAfter := notBefore.Add(time.Duration(validityHours) * time.Hour)
 
-	return &stdx509.Certificate{
+	return &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkixName(identity.Subject),
 		NotBefore:             notBefore,
@@ -92,7 +92,7 @@ func certificateOutputInfo(includeChain bool) map[string]blackstart.OutputValue 
 }
 
 // validateCAPrivateKeyMatchesCertificate verifies the CA key matches the CA certificate public key.
-func validateCAPrivateKeyMatchesCertificate(key any, cert *stdx509.Certificate) error {
+func validateCAPrivateKeyMatchesCertificate(key any, cert *x509.Certificate) error {
 	publicKey, err := publicKeyFromPrivateKey(key)
 	if err != nil {
 		return err
@@ -105,11 +105,11 @@ func validateCAPrivateKeyMatchesCertificate(key any, cert *stdx509.Certificate) 
 
 // publicKeysEqual compares supported public key values.
 func publicKeysEqual(a, b any) bool {
-	aDER, err := stdx509.MarshalPKIXPublicKey(a)
+	aDER, err := x509.MarshalPKIXPublicKey(a)
 	if err != nil {
 		return false
 	}
-	bDER, err := stdx509.MarshalPKIXPublicKey(b)
+	bDER, err := x509.MarshalPKIXPublicKey(b)
 	if err != nil {
 		return false
 	}

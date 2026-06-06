@@ -3,7 +3,7 @@ package crypto
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
@@ -286,19 +286,19 @@ func normalizeProfile(value string) (string, error) {
 }
 
 // profileUsages returns key usage settings for a TLS profile.
-func profileUsages(profile string) (stdx509.KeyUsage, []stdx509.ExtKeyUsage, bool, error) {
+func profileUsages(profile string) (x509.KeyUsage, []x509.ExtKeyUsage, bool, error) {
 	switch profile {
 	case profileServer:
-		return stdx509.KeyUsageDigitalSignature | stdx509.KeyUsageKeyEncipherment,
-			[]stdx509.ExtKeyUsage{stdx509.ExtKeyUsageServerAuth}, false, nil
+		return x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, false, nil
 	case profileClient:
-		return stdx509.KeyUsageDigitalSignature,
-			[]stdx509.ExtKeyUsage{stdx509.ExtKeyUsageClientAuth}, false, nil
+		return x509.KeyUsageDigitalSignature,
+			[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, false, nil
 	case profileServerClient:
-		return stdx509.KeyUsageDigitalSignature | stdx509.KeyUsageKeyEncipherment,
-			[]stdx509.ExtKeyUsage{stdx509.ExtKeyUsageServerAuth, stdx509.ExtKeyUsageClientAuth}, false, nil
+		return x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, false, nil
 	case profileCA:
-		return stdx509.KeyUsageCertSign | stdx509.KeyUsageCRLSign, nil, true, nil
+		return x509.KeyUsageCertSign | x509.KeyUsageCRLSign, nil, true, nil
 	default:
 		return 0, nil, false, fmt.Errorf("unsupported certificate profile %q", profile)
 	}
@@ -320,7 +320,7 @@ func readValidityHours(ctx blackstart.ModuleContext) (int64, error) {
 }
 
 // parseCertificatePEM parses a single X.509 certificate PEM block.
-func parseCertificatePEM(value string) (*stdx509.Certificate, error) {
+func parseCertificatePEM(value string) (*x509.Certificate, error) {
 	certs, err := parseCertificateChainPEM(value)
 	if err != nil {
 		return nil, err
@@ -332,9 +332,9 @@ func parseCertificatePEM(value string) (*stdx509.Certificate, error) {
 }
 
 // parseCertificateChainPEM parses one or more X.509 certificate PEM blocks.
-func parseCertificateChainPEM(value string) ([]*stdx509.Certificate, error) {
+func parseCertificateChainPEM(value string) ([]*x509.Certificate, error) {
 	remaining := []byte(value)
-	var certs []*stdx509.Certificate
+	var certs []*x509.Certificate
 	for {
 		block, rest := pem.Decode(remaining)
 		if block == nil {
@@ -346,7 +346,7 @@ func parseCertificateChainPEM(value string) ([]*stdx509.Certificate, error) {
 		if block.Type != pemTypeCertificate {
 			return nil, fmt.Errorf("unsupported certificate PEM type %q", block.Type)
 		}
-		cert, err := stdx509.ParseCertificate(block.Bytes)
+		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing certificate: %w", err)
 		}
@@ -360,7 +360,7 @@ func parseCertificateChainPEM(value string) ([]*stdx509.Certificate, error) {
 }
 
 // parseCSRPEM parses a single X.509 certificate request PEM block.
-func parseCSRPEM(value string) (*stdx509.CertificateRequest, error) {
+func parseCSRPEM(value string) (*x509.CertificateRequest, error) {
 	block, rest := pem.Decode([]byte(value))
 	if block == nil {
 		return nil, fmt.Errorf("failed parsing certificate request PEM")
@@ -371,7 +371,7 @@ func parseCSRPEM(value string) (*stdx509.CertificateRequest, error) {
 	if block.Type != pemTypeCertRequest {
 		return nil, fmt.Errorf("unsupported certificate request PEM type %q", block.Type)
 	}
-	csr, err := stdx509.ParseCertificateRequest(block.Bytes)
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing certificate request: %w", err)
 	}
@@ -411,7 +411,7 @@ func serialNumber() (*big.Int, error) {
 }
 
 // certificateOutputs builds common certificate output values from generated DER and chain PEM.
-func certificateOutputs(cert *stdx509.Certificate, der []byte, chainPEM string) certOutputs {
+func certificateOutputs(cert *x509.Certificate, der []byte, chainPEM string) certOutputs {
 	certPEM := encodeCertificatePEM(der)
 	combinedPEM := certPEM + chainPEM
 	return certOutputs{

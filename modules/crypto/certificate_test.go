@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"context"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"fmt"
 	"testing"
 	"time"
@@ -33,12 +33,12 @@ func TestProfileUsages(t *testing.T) {
 		name     string
 		profile  string
 		wantCA   bool
-		wantExt  stdx509.ExtKeyUsage
+		wantExt  x509.ExtKeyUsage
 		wantCert bool
 	}{
-		{name: "server", profile: profileServer, wantExt: stdx509.ExtKeyUsageServerAuth},
-		{name: "client", profile: profileClient, wantExt: stdx509.ExtKeyUsageClientAuth},
-		{name: "server_client", profile: profileServerClient, wantExt: stdx509.ExtKeyUsageServerAuth},
+		{name: "server", profile: profileServer, wantExt: x509.ExtKeyUsageServerAuth},
+		{name: "client", profile: profileClient, wantExt: x509.ExtKeyUsageClientAuth},
+		{name: "server_client", profile: profileServerClient, wantExt: x509.ExtKeyUsageServerAuth},
 		{name: "ca", profile: profileCA, wantCA: true, wantCert: true},
 	}
 
@@ -50,11 +50,11 @@ func TestProfileUsages(t *testing.T) {
 				require.Equal(t, tt.wantCA, isCA)
 				if tt.wantCert {
 					require.Empty(t, extUsage)
-					require.NotZero(t, keyUsage&stdx509.KeyUsageCertSign)
+					require.NotZero(t, keyUsage&x509.KeyUsageCertSign)
 					return
 				}
 				require.Contains(t, extUsage, tt.wantExt)
-				require.NotZero(t, keyUsage&stdx509.KeyUsageDigitalSignature)
+				require.NotZero(t, keyUsage&x509.KeyUsageDigitalSignature)
 			},
 		)
 	}

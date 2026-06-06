@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"context"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"encoding/pem"
 	"strings"
 	"testing"
@@ -34,7 +34,7 @@ func testOperation(moduleID string, inputs map[string]blackstart.Input) *blackst
 }
 
 // parseTestCSR parses a PEM-encoded CSR in tests.
-func parseTestCSR(t *testing.T, value string) *stdx509.CertificateRequest {
+func parseTestCSR(t *testing.T, value string) *x509.CertificateRequest {
 	t.Helper()
 
 	csr, err := parseCSRPEM(value)
@@ -43,7 +43,7 @@ func parseTestCSR(t *testing.T, value string) *stdx509.CertificateRequest {
 }
 
 // parseTestCertificate parses a PEM-encoded certificate in tests.
-func parseTestCertificate(t *testing.T, value string) *stdx509.Certificate {
+func parseTestCertificate(t *testing.T, value string) *x509.Certificate {
 	t.Helper()
 
 	cert, err := parseCertificatePEM(value)

@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"context"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"encoding/pem"
 	"net"
 	"testing"
@@ -98,8 +98,8 @@ func TestPrivateKeyPEMParsingBranches(t *testing.T) {
 	rsaKey := testRSAKey(t)
 	ecdsaKey := testECDSAKey(t)
 	edKey := testED25519Key(t)
-	pkcs1PEM := string(pem.EncodeToMemory(&pem.Block{Type: pemTypeRSAPrivateKey, Bytes: stdx509.MarshalPKCS1PrivateKey(rsaKey)}))
-	sec1DER, err := stdx509.MarshalECPrivateKey(ecdsaKey)
+	pkcs1PEM := string(pem.EncodeToMemory(&pem.Block{Type: pemTypeRSAPrivateKey, Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)}))
+	sec1DER, err := x509.MarshalECPrivateKey(ecdsaKey)
 	require.NoError(t, err)
 	sec1PEM := string(pem.EncodeToMemory(&pem.Block{Type: pemTypeECPrivateKey, Bytes: sec1DER}))
 

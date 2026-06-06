@@ -2,7 +2,7 @@ package crypto
 
 import (
 	"context"
-	stdx509 "crypto/x509"
+	"crypto/x509"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ func TestSelfSignedCertificateModuleGeneratesServerCertificate(t *testing.T) {
 
 	cert := parseTestCertificate(t, outputs[outputPEM])
 	require.Equal(t, []string{"app.example.com"}, cert.DNSNames)
-	require.Contains(t, cert.ExtKeyUsage, stdx509.ExtKeyUsageServerAuth)
+	require.Contains(t, cert.ExtKeyUsage, x509.ExtKeyUsageServerAuth)
 	require.Equal(t, outputs[outputPEM], outputs[outputCombinedPEM])
 	require.Regexp(t, `^[0-9a-f]{64}$`, outputs[outputSHA256])
 	require.NotEmpty(t, outputs[outputSerialNumber])
@@ -49,7 +49,7 @@ func TestSelfSignedCertificateModuleGeneratesCACertificate(t *testing.T) {
 
 	cert := parseTestCertificate(t, outputs[outputPEM])
 	require.True(t, cert.IsCA)
-	require.NotZero(t, cert.KeyUsage&stdx509.KeyUsageCertSign)
+	require.NotZero(t, cert.KeyUsage&x509.KeyUsageCertSign)
 }
 
 // TestSelfSignedCertificateModuleValidateRejectsInvalidProfile verifies static profile validation.
