@@ -477,7 +477,7 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 	}
 }
 
-func TestConfigMapValueModule_CheckOutputsCurrentValue(t *testing.T) {
+func TestConfigMapValueModule_CheckOutputsSupportedValueStates(t *testing.T) {
 	clientset := fake.NewClientset()
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -485,26 +485,45 @@ func TestConfigMapValueModule_CheckOutputsCurrentValue(t *testing.T) {
 			Namespace: "test-namespace",
 		},
 		Data: map[string]string{
-			"private-key": "stored-private-key",
+			"string-key": "stored-value",
+			"empty-key":  "",
 		},
 	}
 
 	module := NewConfigMapValueModule()
-	inputs := map[string]blackstart.Input{
-		inputConfigMap: blackstart.NewInputFromValue(&configMap{
-			cm:  cm,
-			cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
-		}),
-		inputKey:          blackstart.NewInputFromValue("private-key"),
-		inputValue:        blackstart.NewInputFromValue("new-private-key"),
-		inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserve),
+	tests := []struct {
+		name       string
+		key        string
+		wantResult bool
+		wantOutput bool
+		wantValue  string
+	}{
+		{name: "string_value", key: "string-key", wantResult: true, wantOutput: true, wantValue: "stored-value"},
+		{name: "empty_string_value", key: "empty-key", wantResult: true, wantOutput: true, wantValue: ""},
+		{name: "missing_key", key: "missing-key", wantResult: false},
 	}
-	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputs := map[string]blackstart.Input{
+				inputConfigMap: blackstart.NewInputFromValue(&configMap{
+					cm:  cm,
+					cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+				}),
+				inputKey: blackstart.NewInputFromValue(tt.key),
+			}
+			ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
 
-	result, err := module.Check(ctx)
-	require.NoError(t, err)
-	assert.True(t, result)
-	assert.Equal(t, "stored-private-key", ctx.outputs[outputValue])
+			result, err := module.Check(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantResult, result)
+			if tt.wantOutput {
+				assert.Equal(t, tt.wantValue, ctx.outputs[outputValue])
+				assert.IsType(t, "", ctx.outputs[outputValue])
+			} else {
+				assert.NotContains(t, ctx.outputs, outputValue)
+			}
+		})
+	}
 }
 
 func TestConfigMapValueModule_Set(t *testing.T) {

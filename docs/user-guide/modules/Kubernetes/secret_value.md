@@ -51,7 +51,6 @@ inputs:
       id: app-secret
       output: secret
   key: DATABASE_PASSWORD
-  update_policy: preserve_any
 ```
 
 ### Set Secret Value

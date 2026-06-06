@@ -65,8 +65,7 @@ inputs:
     fromDependency:
       id: app-secret
       output: secret
-  key: DATABASE_PASSWORD
-  update_policy: preserve_any`,
+  key: DATABASE_PASSWORD`,
 			"Set Secret Value": `id: set-secret-example
 module: kubernetes_secret_value
 inputs:

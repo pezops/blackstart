@@ -51,7 +51,6 @@ inputs:
       id: app-configmap
       output: configmap
   key: DATABASE_URL
-  update_policy: preserve_any
 ```
 
 ### Set ConfigMap Value

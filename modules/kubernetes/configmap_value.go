@@ -65,8 +65,7 @@ inputs:
     fromDependency:
       id: app-configmap
       output: configmap
-  key: DATABASE_URL
-  update_policy: preserve_any`,
+  key: DATABASE_URL`,
 			"Set ConfigMap Value": `id: set-configmap-example
 module: kubernetes_configmap_value
 inputs:

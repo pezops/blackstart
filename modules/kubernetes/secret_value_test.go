@@ -477,7 +477,7 @@ func TestSecretValueModule_Check(t *testing.T) {
 	}
 }
 
-func TestSecretValueModule_CheckOutputsCurrentValue(t *testing.T) {
+func TestSecretValueModule_CheckOutputsSupportedValueStates(t *testing.T) {
 	clientset := fake.NewClientset()
 	sec := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -485,26 +485,63 @@ func TestSecretValueModule_CheckOutputsCurrentValue(t *testing.T) {
 			Namespace: "test-namespace",
 		},
 		Data: map[string][]byte{
-			"private-key": []byte("stored-private-key"),
+			"string-key": []byte("stored-value"),
+			"empty-key":  []byte(""),
 		},
 	}
 
 	module := NewSecretValueModule()
-	inputs := map[string]blackstart.Input{
-		inputSecret: blackstart.NewInputFromValue(&secret{
-			s:  sec,
-			si: clientset.CoreV1().Secrets("test-namespace"),
-		}),
-		inputKey:          blackstart.NewInputFromValue("private-key"),
-		inputValue:        blackstart.NewInputFromValue("new-private-key"),
-		inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserve),
+	tests := []struct {
+		name       string
+		key        string
+		wantResult bool
+		wantOutput bool
+		wantValue  string
+	}{
+		{
+			name:       "string_value",
+			key:        "string-key",
+			wantResult: true,
+			wantOutput: true,
+			wantValue:  "stored-value",
+		},
+		{
+			name:       "empty_string_value",
+			key:        "empty-key",
+			wantResult: true,
+			wantOutput: true,
+			wantValue:  "",
+		},
+		{
+			name:       "missing_key",
+			key:        "missing-key",
+			wantResult: false,
+		},
 	}
-	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
 
-	result, err := module.Check(ctx)
-	require.NoError(t, err)
-	assert.True(t, result)
-	assert.Equal(t, "stored-private-key", ctx.outputs[outputValue])
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inputs := map[string]blackstart.Input{
+				inputSecret: blackstart.NewInputFromValue(&secret{
+					s:  sec,
+					si: clientset.CoreV1().Secrets("test-namespace"),
+				}),
+				inputKey: blackstart.NewInputFromValue(test.key),
+			}
+			ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+			result, err := module.Check(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantResult, result)
+
+			value, exists := ctx.outputs[outputValue]
+			assert.Equal(t, test.wantOutput, exists)
+			if test.wantOutput {
+				assert.Equal(t, test.wantValue, value)
+				assert.IsType(t, "", value)
+			}
+		})
+	}
 }
 
 func TestSecretValueModule_Set(t *testing.T) {
