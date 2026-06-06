@@ -18,6 +18,7 @@ const (
 	outputConfigMap = "configmap"
 	outputSecret    = "secret"
 	outputClient    = "client"
+	outputValue     = "value"
 )
 
 const (

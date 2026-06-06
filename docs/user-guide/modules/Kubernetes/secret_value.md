@@ -33,9 +33,26 @@ and Secrets. The following update policies are supported:
 
 ## Outputs
 
-No outputs are supported for this module
+| Id    | Description                                            | Type   |
+| ----- | ------------------------------------------------------ | ------ |
+| value | Current value stored for the key after reconciliation. | string |
 
 ## Examples
+
+### Read Secret Value
+
+```yaml
+id: read-secret-value
+module: kubernetes_secret_value
+inputs:
+  secret:
+    fromDependency:
+      id: app-secret
+      output: secret
+  key: DATABASE_PASSWORD
+  value: ""
+  update_policy: preserve_any
+```
 
 ### Set Secret Value
 

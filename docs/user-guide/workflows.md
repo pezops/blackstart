@@ -194,4 +194,3 @@ inputs:
 In this case, the `connection` input will be populated with the value of the `connection` output
 from the `test_instance` operation. This also creates a dependency on `test_instance` in the
 generated execution graph.
-

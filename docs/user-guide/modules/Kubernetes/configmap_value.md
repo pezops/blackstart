@@ -33,9 +33,26 @@ and Secrets. The following update policies are supported:
 
 ## Outputs
 
-No outputs are supported for this module
+| Id    | Description                                            | Type   |
+| ----- | ------------------------------------------------------ | ------ |
+| value | Current value stored for the key after reconciliation. | string |
 
 ## Examples
+
+### Read ConfigMap Value
+
+```yaml
+id: read-configmap-value
+module: kubernetes_configmap_value
+inputs:
+  configmap:
+    fromDependency:
+      id: app-configmap
+      output: configmap
+  key: DATABASE_URL
+  value: ""
+  update_policy: preserve_any
+```
 
 ### Set ConfigMap Value
 

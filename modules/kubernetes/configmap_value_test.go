@@ -26,6 +26,8 @@ func TestConfigMapValueModule_Info(t *testing.T) {
 	assert.True(t, exists)
 	_, exists = info.Inputs[inputConfigMap]
 	assert.True(t, exists)
+	_, exists = info.Outputs[outputValue]
+	assert.True(t, exists)
 }
 
 func TestConfigMapValueModule_Validate(t *testing.T) {
@@ -408,6 +410,36 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 	}
 }
 
+func TestConfigMapValueModule_CheckOutputsCurrentValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
+		Data: map[string]string{
+			"private-key": "stored-private-key",
+		},
+	}
+
+	module := NewConfigMapValueModule()
+	inputs := map[string]blackstart.Input{
+		inputConfigMap: blackstart.NewInputFromValue(&configMap{
+			cm:  cm,
+			cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+		}),
+		inputKey:          blackstart.NewInputFromValue("private-key"),
+		inputValue:        blackstart.NewInputFromValue("new-private-key"),
+		inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserve),
+	}
+	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+	result, err := module.Check(ctx)
+	require.NoError(t, err)
+	assert.True(t, result)
+	assert.Equal(t, "stored-private-key", ctx.outputs[outputValue])
+}
+
 func TestConfigMapValueModule_Set(t *testing.T) {
 	// Create a fake Kubernetes clientset
 	clientset := fake.NewClientset()
@@ -548,6 +580,38 @@ func TestConfigMapValueModule_Set(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestConfigMapValueModule_SetOutputsWrittenValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
+		Data: map[string]string{},
+	}
+	_, err := clientset.CoreV1().ConfigMaps("test-namespace").Create(
+		context.Background(),
+		initialConfigMap,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewConfigMapValueModule()
+	inputs := map[string]blackstart.Input{
+		inputConfigMap: blackstart.NewInputFromValue(&configMap{
+			cm:  initialConfigMap,
+			cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+		}),
+		inputKey:   blackstart.NewInputFromValue("private-key"),
+		inputValue: blackstart.NewInputFromValue("generated-private-key"),
+	}
+	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+	err = module.Set(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "generated-private-key", ctx.outputs[outputValue])
 }
 
 func TestConfigMapValueModule(t *testing.T) {

@@ -26,6 +26,8 @@ func TestSecretValueModule_Info(t *testing.T) {
 	assert.True(t, exists)
 	_, exists = info.Inputs[inputSecret]
 	assert.True(t, exists)
+	_, exists = info.Outputs[outputValue]
+	assert.True(t, exists)
 }
 
 func TestSecretValueModule_Validate(t *testing.T) {
@@ -408,6 +410,36 @@ func TestSecretValueModule_Check(t *testing.T) {
 	}
 }
 
+func TestSecretValueModule_CheckOutputsCurrentValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "test-namespace",
+		},
+		Data: map[string][]byte{
+			"private-key": []byte("stored-private-key"),
+		},
+	}
+
+	module := NewSecretValueModule()
+	inputs := map[string]blackstart.Input{
+		inputSecret: blackstart.NewInputFromValue(&secret{
+			s:  sec,
+			si: clientset.CoreV1().Secrets("test-namespace"),
+		}),
+		inputKey:          blackstart.NewInputFromValue("private-key"),
+		inputValue:        blackstart.NewInputFromValue("new-private-key"),
+		inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserve),
+	}
+	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+	result, err := module.Check(ctx)
+	require.NoError(t, err)
+	assert.True(t, result)
+	assert.Equal(t, "stored-private-key", ctx.outputs[outputValue])
+}
+
 func TestSecretValueModule_Set(t *testing.T) {
 	// Create a fake Kubernetes clientset
 	clientset := fake.NewClientset()
@@ -548,6 +580,38 @@ func TestSecretValueModule_Set(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestSecretValueModule_SetOutputsWrittenValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "test-namespace",
+		},
+		Data: map[string][]byte{},
+	}
+	_, err := clientset.CoreV1().Secrets("test-namespace").Create(
+		context.Background(),
+		initialSecret,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewSecretValueModule()
+	inputs := map[string]blackstart.Input{
+		inputSecret: blackstart.NewInputFromValue(&secret{
+			s:  initialSecret,
+			si: clientset.CoreV1().Secrets("test-namespace"),
+		}),
+		inputKey:   blackstart.NewInputFromValue("private-key"),
+		inputValue: blackstart.NewInputFromValue("generated-private-key"),
+	}
+	ctx := &capturingModuleContext{ModuleContext: blackstart.InputsToContext(context.Background(), inputs)}
+
+	err = module.Set(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "generated-private-key", ctx.outputs[outputValue])
 }
 
 func TestSecretValueModule(t *testing.T) {

@@ -52,8 +52,23 @@ func (c *configMapValueModule) Info() blackstart.ModuleInfo {
 				Default:     updatePolicyOverwrite,
 			},
 		},
-		Outputs: map[string]blackstart.OutputValue{},
+		Outputs: map[string]blackstart.OutputValue{
+			outputValue: {
+				Description: "Current value stored for the key after reconciliation.",
+				Type:        reflect.TypeFor[string](),
+			},
+		},
 		Examples: map[string]string{
+			"Read ConfigMap Value": `id: read-configmap-value
+module: kubernetes_configmap_value
+inputs:
+  configmap:
+    fromDependency:
+      id: app-configmap
+      output: configmap
+  key: DATABASE_URL
+  value: ""
+  update_policy: preserve_any`,
 			"Set ConfigMap Value": `id: set-configmap-example
 module: kubernetes_configmap_value
 inputs:
@@ -119,10 +134,6 @@ func (c *configMapValueModule) Validate(op blackstart.Operation) error {
 }
 
 func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error) {
-	if ctx.Tainted() {
-		return false, nil
-	}
-
 	cmInput, err := ctx.Input(inputConfigMap)
 	if err != nil {
 		return false, fmt.Errorf("failed to get ConfigMap: %w", err)
@@ -155,6 +166,10 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 		return false, fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
 	}
 
+	if ctx.Tainted() {
+		return false, nil
+	}
+
 	// If DoesNotExist is true, success is either the ConfigMap or key does not exist
 	if ctx.DoesNotExist() {
 		_, keyExists := cm.cm.Data[key]
@@ -172,21 +187,24 @@ func (c *configMapValueModule) Check(ctx blackstart.ModuleContext) (bool, error)
 
 	switch updatePolicy {
 	case updatePolicyOverwrite:
-		return actualValue == desiredValue, nil
+		if actualValue == desiredValue {
+			return true, outputConfigMapValue(ctx, actualValue)
+		}
+		return false, nil
 	case updatePolicyPreserve:
 		if actualValue != "" {
-			return true, nil
+			return true, outputConfigMapValue(ctx, actualValue)
 		}
 		return false, nil
 	case updatePolicyPreserveAny:
-		return true, nil
+		return true, outputConfigMapValue(ctx, actualValue)
 	case updatePolicyFail:
 		if actualValue != desiredValue {
 			return false, fmt.Errorf(
 				"key '%s' had a value changed, but updating the value is not allowed due to the update policy", key,
 			)
 		}
-		return true, nil
+		return true, outputConfigMapValue(ctx, actualValue)
 	}
 	return false, fmt.Errorf("unhandled update policy: %s", updatePolicy)
 }
@@ -223,10 +241,19 @@ func (c *configMapValueModule) Set(ctx blackstart.ModuleContext) error {
 			delete(cm.cm.Data, key)
 			return cm.Update(ctx)
 		}
+		return nil
 	}
 
 	// ConfigMap exists, update the value
 	cm.cm.Data[key] = desiredValue
 
-	return cm.Update(ctx)
+	if err := cm.Update(ctx); err != nil {
+		return err
+	}
+	return outputConfigMapValue(ctx, desiredValue)
+}
+
+// outputConfigMapValue emits the value output for a ConfigMap key.
+func outputConfigMapValue(ctx blackstart.ModuleContext, value string) error {
+	return ctx.Output(outputValue, value)
 }
