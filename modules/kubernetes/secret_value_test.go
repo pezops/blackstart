@@ -24,6 +24,7 @@ func TestSecretValueModule_Info(t *testing.T) {
 	assert.True(t, exists)
 	_, exists = info.Inputs[inputValue]
 	assert.True(t, exists)
+	assert.False(t, info.Inputs[inputValue].Required)
 	_, exists = info.Inputs[inputSecret]
 	assert.True(t, exists)
 	_, exists = info.Outputs[outputValue]
@@ -79,11 +80,37 @@ func TestSecretValueModule_Validate(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "missing value",
+			name: "missing value with overwrite",
 			inputs: map[string]blackstart.Input{
 				inputSecret:       blackstart.NewInputFromValue(sec),
 				inputKey:          blackstart.NewInputFromValue("test-key"),
 				inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyOverwrite),
+			},
+			expectError: true,
+		},
+		{
+			name: "missing value with preserve_any",
+			inputs: map[string]blackstart.Input{
+				inputSecret:       blackstart.NewInputFromValue(sec),
+				inputKey:          blackstart.NewInputFromValue("test-key"),
+				inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserveAny),
+			},
+			expectError: false,
+		},
+		{
+			name: "missing value defaults to preserve_any",
+			inputs: map[string]blackstart.Input{
+				inputSecret: blackstart.NewInputFromValue(sec),
+				inputKey:    blackstart.NewInputFromValue("test-key"),
+			},
+			expectError: false,
+		},
+		{
+			name: "null value is invalid",
+			inputs: map[string]blackstart.Input{
+				inputSecret: blackstart.NewInputFromValue(sec),
+				inputKey:    blackstart.NewInputFromValue("test-key"),
+				inputValue:  blackstart.NewInputFromValue(nil),
 			},
 			expectError: true,
 		},
@@ -178,6 +205,7 @@ func TestSecretValueModule_Check(t *testing.T) {
 		namespace      string
 		key            string
 		value          string
+		omitValue      bool
 		updatePolicy   string
 		doesNotExist   bool
 		tainted        bool
@@ -286,6 +314,34 @@ func TestSecretValueModule_Check(t *testing.T) {
 			updatePolicy:   updatePolicyPreserveAny,
 			expectedResult: false,
 		},
+		{
+			name:           "preserve_any policy with non-empty existing value and omitted value",
+			secretName:     "test-secret",
+			namespace:      "test-namespace",
+			key:            "existing-key",
+			omitValue:      true,
+			updatePolicy:   updatePolicyPreserveAny,
+			expectedResult: true,
+		},
+		{
+			name:           "preserve_any policy with missing key and omitted value",
+			secretName:     "test-secret",
+			namespace:      "test-namespace",
+			key:            "missing-key",
+			omitValue:      true,
+			updatePolicy:   updatePolicyPreserveAny,
+			expectedResult: false,
+		},
+		{
+			name:           "overwrite policy with omitted value",
+			secretName:     "test-secret",
+			namespace:      "test-namespace",
+			key:            "existing-key",
+			omitValue:      true,
+			updatePolicy:   updatePolicyOverwrite,
+			expectedResult: false,
+			expectError:    true,
+		},
 		// Fail policy tests
 		{
 			name:           "fail policy with matching value",
@@ -388,8 +444,10 @@ func TestSecretValueModule_Check(t *testing.T) {
 				inputs := map[string]blackstart.Input{
 					inputSecret:       blackstart.NewInputFromValue(secretObj),
 					inputKey:          blackstart.NewInputFromValue(test.key),
-					inputValue:        blackstart.NewInputFromValue(test.value),
 					inputUpdatePolicy: blackstart.NewInputFromValue(test.updatePolicy),
+				}
+				if !test.omitValue {
+					inputs[inputValue] = blackstart.NewInputFromValue(test.value)
 				}
 
 				// Create context using blackstart.InputsToContext
@@ -621,6 +679,76 @@ func TestSecretValueModule_SetOutputsWrittenValue(t *testing.T) {
 	err = module.Set(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "generated-private-key", ctx.outputs[outputValue])
+}
+
+func TestSecretValueModule_SetRejectsOmittedValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "test-namespace",
+		},
+		Data: map[string][]byte{},
+	}
+	_, err := clientset.CoreV1().Secrets("test-namespace").Create(
+		context.Background(),
+		initialSecret,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewSecretValueModule()
+	inputs := map[string]blackstart.Input{
+		inputSecret: blackstart.NewInputFromValue(&secret{
+			s:  initialSecret,
+			si: clientset.CoreV1().Secrets("test-namespace"),
+		}),
+		inputKey:          blackstart.NewInputFromValue("missing-key"),
+		inputUpdatePolicy: blackstart.NewInputFromValue(updatePolicyPreserveAny),
+	}
+	ctx := blackstart.InputsToContext(context.Background(), inputs)
+
+	err = module.Set(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be provided when setting a missing key")
+}
+
+func TestSecretValueModule_SetAllowsEmptyStringValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	initialSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "test-namespace",
+		},
+		Data: map[string][]byte{},
+	}
+	_, err := clientset.CoreV1().Secrets("test-namespace").Create(
+		context.Background(),
+		initialSecret,
+		metav1.CreateOptions{},
+	)
+	require.NoError(t, err)
+
+	module := NewSecretValueModule()
+	inputs := map[string]blackstart.Input{
+		inputSecret: blackstart.NewInputFromValue(&secret{
+			s:  initialSecret,
+			si: clientset.CoreV1().Secrets("test-namespace"),
+		}),
+		inputKey:   blackstart.NewInputFromValue("empty-key"),
+		inputValue: blackstart.NewInputFromValue(""),
+	}
+	ctx := blackstart.InputsToContext(context.Background(), inputs)
+
+	err = module.Set(ctx)
+	require.NoError(t, err)
+	sec, err := clientset.CoreV1().Secrets("test-namespace").Get(
+		context.Background(),
+		"test-secret",
+		metav1.GetOptions{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "", string(sec.Data["empty-key"]))
 }
 
 func TestSecretValueModule(t *testing.T) {

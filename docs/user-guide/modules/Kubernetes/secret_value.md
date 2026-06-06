@@ -25,12 +25,12 @@ and Secrets. The following update policies are supported:
 
 ## Inputs
 
-| Id            | Description                                                       | Type                | Required |
-| ------------- | ----------------------------------------------------------------- | ------------------- | -------- |
-| key           | Key in the Secret to set                                          | string              | true     |
-| secret        | Secret resource                                                   | \*kubernetes.secret | true     |
-| update_policy | Update policy for the key-value pair<br>Default: **preserve_any** | string              | false    |
-| value         | Value to set for the key                                          | string              | true     |
+| Id            | Description                                                                                             | Type                | Required |
+| ------------- | ------------------------------------------------------------------------------------------------------- | ------------------- | -------- |
+| key           | Key in the Secret to set                                                                                | string              | true     |
+| secret        | Secret resource                                                                                         | \*kubernetes.secret | true     |
+| update_policy | Update policy for the key-value pair<br>Default: **preserve_any**                                       | string              | false    |
+| value         | Value to set for the key. Required unless `update_policy` is `preserve_any`. Empty strings are allowed. | string              | false    |
 
 ## Outputs
 
@@ -51,7 +51,6 @@ inputs:
       id: app-secret
       output: secret
   key: DATABASE_PASSWORD
-  value: ""
   update_policy: preserve_any
 ```
 

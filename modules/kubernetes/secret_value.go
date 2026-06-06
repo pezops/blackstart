@@ -3,7 +3,6 @@ package kubernetes
 import (
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/pezops/blackstart"
 )
@@ -41,9 +40,9 @@ func (s *secretValueModule) Info() blackstart.ModuleInfo {
 				Required:    true,
 			},
 			inputValue: {
-				Description: "Value to set for the key",
+				Description: "Value to set for the key. Required unless `update_policy` is `preserve_any`. Empty strings are allowed.",
 				Type:        reflect.TypeFor[string](),
-				Required:    true,
+				Required:    false,
 			},
 			inputUpdatePolicy: {
 				Description: "Update policy for the key-value pair",
@@ -67,7 +66,6 @@ inputs:
       id: app-secret
       output: secret
   key: DATABASE_PASSWORD
-  value: ""
   update_policy: preserve_any`,
 			"Set Secret Value": `id: set-secret-example
 module: kubernetes_secret_value
@@ -99,36 +97,18 @@ func (s *secretValueModule) Validate(op blackstart.Operation) error {
 		}
 	}
 
-	// Value is required (but can be an empty string)
-	_, ok = op.Inputs[inputValue]
-	if !ok {
-		return fmt.Errorf("input '%s' must be provided", inputValue)
-	}
-
 	// Secret is required
 	_, ok = op.Inputs[inputSecret]
 	if !ok {
 		return fmt.Errorf("input '%s' must be provided", inputSecret)
 	}
 
-	updatePolicy := updatePolicyPreserveAny
-	if updatePolicyInput, exists := op.Inputs[inputUpdatePolicy]; exists {
-		if !updatePolicyInput.IsStatic() {
-			return nil
-		}
-		updatePolicyValue, err := blackstart.InputAs[string](updatePolicyInput, false)
-		if err != nil {
-			return fmt.Errorf("input '%s' is invalid: %w", inputUpdatePolicy, err)
-		}
-		updatePolicy = strings.TrimSpace(updatePolicyValue)
-		if updatePolicy == "" {
-			updatePolicy = updatePolicyPreserveAny
-		}
+	updatePolicy, policyKnown, err := operationUpdatePolicy(op)
+	if err != nil {
+		return err
 	}
-
-	_, ok = updatePolicies[updatePolicy]
-	if !ok {
-		return fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+	if err = validateValueInput(op, updatePolicy, policyKnown); err != nil {
+		return err
 	}
 
 	return nil
@@ -150,21 +130,17 @@ func (s *secretValueModule) Check(ctx blackstart.ModuleContext) (bool, error) {
 		return false, err
 	}
 
-	desiredValue, err := blackstart.ContextInputAs[string](ctx, inputValue, true)
+	updatePolicy, err := contextUpdatePolicy(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	updatePolicy := updatePolicyPreserveAny
-	updatePolicyInput, inputErr := blackstart.ContextInputAs[string](ctx, inputUpdatePolicy, false)
-	if inputErr == nil {
-		updatePolicy = strings.TrimSpace(updatePolicyInput)
+	desiredValue, hasValue, err := contextOptionalValue(ctx)
+	if err != nil {
+		return false, err
 	}
-	if updatePolicy == "" {
-		updatePolicy = updatePolicyPreserveAny
-	}
-	if _, ok := updatePolicies[updatePolicy]; !ok {
-		return false, fmt.Errorf("input '%s' has invalid value '%s'", inputUpdatePolicy, updatePolicy)
+	if err = requireValueInput(updatePolicy, hasValue); err != nil {
+		return false, err
 	}
 
 	if ctx.Tainted() {
@@ -227,7 +203,7 @@ func (s *secretValueModule) Set(ctx blackstart.ModuleContext) error {
 		return err
 	}
 
-	desiredValue, err := blackstart.ContextInputAs[string](ctx, inputValue, true)
+	desiredValue, hasValue, err := contextOptionalValue(ctx)
 	if err != nil {
 		return err
 	}
@@ -246,10 +222,14 @@ func (s *secretValueModule) Set(ctx blackstart.ModuleContext) error {
 		return nil
 	}
 
+	if err = requireSetValueInput(hasValue); err != nil {
+		return err
+	}
+
 	// Secret exists, update the value
 	sec.s.Data[key] = []byte(desiredValue)
 
-	if err := sec.Update(ctx); err != nil {
+	if err = sec.Update(ctx); err != nil {
 		return err
 	}
 	return outputSecretValue(ctx, desiredValue)
