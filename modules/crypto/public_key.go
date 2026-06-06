@@ -87,13 +87,13 @@ operations:
       namespace: default
       name: signing-key
 
-  - id: generated_private_key
+  - id: generate_new_private_key
     module: crypto_private_key
     inputs:
       algorithm: RSA
       rsa_bits: 4096
 
-  - id: read_current_private_key
+  - id: read_old_private_key
     module: kubernetes_secret_value
     inputs:
       secret:
@@ -101,18 +101,15 @@ operations:
           id: signing_key_secret
           output: secret
       key: current_private_key
-      value:
-        fromDependency:
-          id: generated_private_key
-          output: pem
-      update_policy: preserve_any
+      value: ""
+      update_policy: preserve
 
   - id: derive_old_public_key
     module: crypto_public_key
     inputs:
       private_key_pem:
         fromDependency:
-          id: read_current_private_key
+          id: read_old_private_key
           output: value
 
   - id: old_private_key_secret_value
@@ -125,7 +122,7 @@ operations:
       key: old_private_key
       value:
         fromDependency:
-          id: read_current_private_key
+          id: read_old_private_key
           output: value
       update_policy: overwrite
 
@@ -148,7 +145,7 @@ operations:
     inputs:
       private_key_pem:
         fromDependency:
-          id: generated_private_key
+          id: generate_new_private_key
           output: pem
 
   - id: new_private_key_secret_value
@@ -161,7 +158,7 @@ operations:
       key: current_private_key
       value:
         fromDependency:
-          id: generated_private_key
+          id: generate_new_private_key
           output: pem
       update_policy: overwrite
     dependsOn:
