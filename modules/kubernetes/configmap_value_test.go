@@ -477,6 +477,38 @@ func TestConfigMapValueModule_Check(t *testing.T) {
 	}
 }
 
+func TestConfigMapValueModule_CheckWithOpContextAllowsOmittedOptionalValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	module := NewConfigMapValueModule()
+
+	cm := &configMap{
+		cm: &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-configmap",
+				Namespace: "test-namespace",
+			},
+			Data: map[string]string{
+				"existing-key": "existing-value",
+			},
+		},
+		cmi: clientset.CoreV1().ConfigMaps("test-namespace"),
+	}
+
+	op := &blackstart.Operation{
+		Id:     "read-configmap-value",
+		Module: "kubernetes_configmap_value",
+		Inputs: map[string]blackstart.Input{
+			inputConfigMap: blackstart.NewInputFromValue(cm),
+			inputKey:       blackstart.NewInputFromValue("existing-key"),
+		},
+	}
+
+	ctx := blackstart.OpContext(context.Background(), op)
+	result, err := module.Check(ctx)
+	require.NoError(t, err)
+	require.True(t, result)
+}
+
 func TestConfigMapValueModule_CheckOutputsSupportedValueStates(t *testing.T) {
 	clientset := fake.NewClientset()
 	cm := &corev1.ConfigMap{

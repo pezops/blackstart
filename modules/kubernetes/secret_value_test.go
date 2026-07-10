@@ -477,6 +477,38 @@ func TestSecretValueModule_Check(t *testing.T) {
 	}
 }
 
+func TestSecretValueModule_CheckWithOpContextAllowsOmittedOptionalValue(t *testing.T) {
+	clientset := fake.NewClientset()
+	module := NewSecretValueModule()
+
+	sec := &secret{
+		s: &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-secret",
+				Namespace: "test-namespace",
+			},
+			Data: map[string][]byte{
+				"existing-key": []byte("existing-value"),
+			},
+		},
+		si: clientset.CoreV1().Secrets("test-namespace"),
+	}
+
+	op := &blackstart.Operation{
+		Id:     "read-secret-value",
+		Module: "kubernetes_secret_value",
+		Inputs: map[string]blackstart.Input{
+			inputSecret: blackstart.NewInputFromValue(sec),
+			inputKey:    blackstart.NewInputFromValue("existing-key"),
+		},
+	}
+
+	ctx := blackstart.OpContext(context.Background(), op)
+	result, err := module.Check(ctx)
+	require.NoError(t, err)
+	require.True(t, result)
+}
+
 func TestSecretValueModule_CheckOutputsSupportedValueStates(t *testing.T) {
 	clientset := fake.NewClientset()
 	sec := &corev1.Secret{
