@@ -78,7 +78,9 @@ func contextOptionalValue(ctx blackstart.ModuleContext) (string, bool, error) {
 		return "", false, err
 	}
 	if input.Any() == nil {
-		return "", true, fmt.Errorf("input '%s' must not be null", inputValue)
+		// The core module context currently materializes missing optional inputs as nil.
+		// Treat nil the same as omission for kubernetes value modules.
+		return "", false, nil
 	}
 	value, err := blackstart.InputAs[string](input, false)
 	if err != nil {
