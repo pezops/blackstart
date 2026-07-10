@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/pezops/blackstart/compare/v0.2.0...v0.2.1) (2026-07-10)
+
+
+### 🐛 Bug Fixes
+
+* register Kubernetes CRD scheme to group for v1.ListOptions support ([#90](https://github.com/pezops/blackstart/issues/90)) ([acc671e](https://github.com/pezops/blackstart/commit/acc671e0e5941406f7844ffa70c957588209463f))
+
 ## [0.2.0](https://github.com/pezops/blackstart/compare/v0.1.15...v0.2.0) (2026-06-06)
 
 
