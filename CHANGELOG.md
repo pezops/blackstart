@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/pezops/blackstart/compare/v0.2.1...v0.2.2) (2026-07-10)
+
+
+### 🐛 Bug Fixes
+
+* **kubernetes:** handle optional input reading configmap and secret values ([#92](https://github.com/pezops/blackstart/issues/92)) ([f445e27](https://github.com/pezops/blackstart/commit/f445e27270039a2d60d0e0e960d37b4bc2263dab))
+
 ## [0.2.1](https://github.com/pezops/blackstart/compare/v0.2.0...v0.2.1) (2026-07-10)
 
 
