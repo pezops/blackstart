@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0](https://github.com/pezops/blackstart/compare/v0.1.15...v0.2.0) (2026-06-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* Add support for and default to read-only Kubernetes ConfigMap and Secret values ([#86](https://github.com/pezops/blackstart/issues/86))
+
+### 🚀 Features
+
+* Add `crypto` modules for public and private key support ([#88](https://github.com/pezops/blackstart/issues/88)) ([1120341](https://github.com/pezops/blackstart/commit/11203417f3ee560d74ccc42f1a8228eb0d4d59e3))
+* Add support for and default to read-only Kubernetes ConfigMap and Secret values ([#86](https://github.com/pezops/blackstart/issues/86)) ([7b978ad](https://github.com/pezops/blackstart/commit/7b978ad79c3c50f4a8992c284a7bfe63706b59c4))
+* Add X.509 modules for certificate management ([#89](https://github.com/pezops/blackstart/issues/89)) ([372ef00](https://github.com/pezops/blackstart/commit/372ef00411dfdee476aadb698b16513e1e4c74d9))
+
 ## [0.1.15](https://github.com/pezops/blackstart/compare/v0.1.14...v0.1.15) (2026-06-05)
 
 
